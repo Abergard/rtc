@@ -5,6 +5,7 @@
 
 #include "begin_end_concept.hpp"
 #include "fast_pow.hpp"
+
 #include "intersection.hpp"
 #include "math_plane.hpp"
 #include "point_in_triangle_test.hpp"

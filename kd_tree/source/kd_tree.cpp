@@ -6,6 +6,7 @@
 #include <set>
 
 #include "bounding_edge.hpp"
+
 #include "kd_tree_node.hpp"
 #include "rtc_log.hpp"
 #include "scoped_timer.hpp"

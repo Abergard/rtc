@@ -3,6 +3,7 @@
 #include <memory>
 #include <tuple>
 
+
 #include "bounding_edge.hpp"
 #include "math_ray.hpp"
 #include "math_vector.hpp"

@@ -12,6 +12,7 @@ auto kd_tree::const_iterator::operator*() const noexcept -> const value_type&
   return *current_node->triangles;
 }
 
+
 auto kd_tree::const_iterator::operator==(const kd_tree::const_iterator& i) const noexcept -> bool
 {
   return current_node == i.current_node;

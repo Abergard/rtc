@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <iosfwd>
 #include <mutex>
 #include <string>
 #include <thread>

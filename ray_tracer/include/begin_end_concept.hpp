@@ -14,6 +14,7 @@ struct has_ray_begin_and_end : std::false_type
 template <typename T>
 struct has_ray_begin_and_end<
     T,
+
     std::void_t<decltype(std::declval<const T&>().cbegin(std::declval<const math_ray&>()) ==
                          std::declval<const T&>().cend(std::declval<const math_ray&>())),
                 decltype(std::declval<const T&>().cbegin(std::declval<const math_ray&>()) !=
