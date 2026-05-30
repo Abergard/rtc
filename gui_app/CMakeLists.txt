@@ -6,7 +6,10 @@ find_package(Qt5 REQUIRED COMPONENTS Widgets)
 find_package(OpenGL REQUIRED)
 
 add_executable(rtc_gui_app
+  source/image_conversion.cpp
   source/main.cpp
+  source/main_window.cpp
+  source/scene_view.cpp
 )
 
 set_target_properties(rtc_gui_app PROPERTIES
