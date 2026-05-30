@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "begin_end_concept.hpp"
+#include "chrome_trace.hpp"
 #include "fast_pow.hpp"
 
 #include "intersection.hpp"
@@ -67,6 +68,8 @@ auto ray_tracer<T>::compute_intersection(const rtc::math_ray& ray,
 template <typename T>
 auto ray_tracer<T>::trace_ray(const rtc::math_ray& ray) const noexcept -> rtc::intersection
 {
+  RTC_TRACE_SCOPE_CAT("ray_tracer::trace_ray", "ray_tracer");
+
   rtc::intersection intersect{};
   auto current_hit = std::numeric_limits<rtc_float>::max();
 

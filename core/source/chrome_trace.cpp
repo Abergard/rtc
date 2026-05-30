@@ -24,9 +24,17 @@ auto chrome_trace::instance() -> chrome_trace&
   return trace;
 }
 
+chrome_trace::~chrome_trace() noexcept
+try
+  {
+    flush();
+  }
+catch (...)
+  {
+  }
+
 auto chrome_trace::set_output_file(std::string file_name) -> void
 {
-  std::lock_guard<std::mutex> lock{mutex};
   output_file = std::move(file_name);
 }
 
@@ -43,59 +51,73 @@ auto chrome_trace::add_complete_event(const char* name,
   event.process_id = process_id();
   event.thread_id = thread_id();
 
-  std::lock_guard<std::mutex> lock{mutex};
-  events.emplace_back(std::move(event));
+  current_thread_buffer().events.emplace_back(std::move(event));
 }
 
 auto chrome_trace::clear() -> void
 {
-  std::lock_guard<std::mutex> lock{mutex};
-  events.clear();
+  for (auto buffer = buffers.load(std::memory_order_acquire); buffer != nullptr; buffer = buffer->next)
+  {
+    buffer->events.clear();
+  }
 }
 
 auto chrome_trace::flush() -> void
 {
-  std::string file_name;
-  std::vector<complete_event> events_copy;
-
-  {
-    std::lock_guard<std::mutex> lock{mutex};
-    file_name = output_file;
-    events_copy = events;
-  }
-
-  write_events(file_name, events_copy);
+  flush(output_file);
 }
 
 auto chrome_trace::flush(const std::string& file_name) -> void
 {
-  std::vector<complete_event> events_copy;
-
+  std::vector<thread_buffer*> buffers_copy;
+  for (auto buffer = buffers.load(std::memory_order_acquire); buffer != nullptr; buffer = buffer->next)
   {
-    std::lock_guard<std::mutex> lock{mutex};
-    events_copy = events;
+    buffers_copy.emplace_back(buffer);
   }
 
-  write_events(file_name, events_copy);
+  write_events(file_name, buffers_copy);
 }
 
-auto chrome_trace::write_events(const std::string& file_name, const std::vector<complete_event>& events) -> void
+auto chrome_trace::current_thread_buffer() noexcept -> thread_buffer&
+{
+  thread_local auto* buffer = [] {
+    auto& trace = chrome_trace::instance();
+    auto* new_buffer = new thread_buffer{};
+    auto* head = trace.buffers.load(std::memory_order_relaxed);
+
+    do
+    {
+      new_buffer->next = head;
+    } while (!trace.buffers.compare_exchange_weak(
+        head, new_buffer, std::memory_order_release, std::memory_order_relaxed));
+
+    return new_buffer;
+  }();
+
+  return *buffer;
+}
+
+auto chrome_trace::write_events(const std::string& file_name, const std::vector<thread_buffer*>& buffers) -> void
 {
   std::ofstream out{file_name};
   out << "{\n\"traceEvents\":[\n";
 
-  for (std::size_t i{}; i < events.size(); ++i)
+  bool first{true};
+  for (const auto* buffer : buffers)
   {
-    const auto& event = events[i];
-    if (i != 0)
-      out << ",\n";
+    for (const auto& event : buffer->events)
+    {
+      if (!first)
+        out << ",\n";
 
-    out << "{\"ph\":\"X\",\"cat\":";
-    json_escape(out, event.category);
-    out << ",\"name\":";
-    json_escape(out, event.name);
-    out << ",\"pid\":" << event.process_id << ",\"tid\":" << event.thread_id << ",\"ts\":" << event.timestamp_us
-        << ",\"dur\":" << event.duration_us << ",\"args\":{}}";
+      first = false;
+      out << "{\"ph\":\"X\",\"cat\":";
+      json_escape(out, event.category);
+      out << ",\"name\":";
+      json_escape(out, event.name);
+      out << ",\"pid\":" << event.process_id << ",\"tid\":" << event.thread_id << ",\"ts\":" << event.timestamp_us
+          << ",\"dur\":" << event.duration_us << ",\"args\":{}}";
+    }
   }
 
   out << "\n]\n}\n";

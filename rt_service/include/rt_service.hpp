@@ -239,7 +239,7 @@ void rt_service<T>::consumer_thread_execution_loop(std::size_t thread_id, contro
   }
   catch (const boost::thread_interrupted&)
   {
-    RELEASE << "Consumer[" << thread_id << "] was interrupted!!"
+    DEBUG << "Consumer[" << thread_id << "] was interrupted!!"
             << " number of work: " << work << " total num: " << total << " stols num: " << stols
             << " work load: " << (rtc_float)work / (rtc_float)total
             << " work stols: " << (rtc_float)stols / (rtc_float)total;

@@ -95,11 +95,15 @@ auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
   const rtc::optical_camera_plane op{scene->optical_system};
 
   rt_algorithm rt_alg{scene};
-  rt_alg.prework(bmp);
+  {
+    RTC_TRACE_SCOPE_CAT("ray_al::prework", "render_engine::bitmap");
+    rt_alg.prework(bmp);
+  }
 
   auto fiber_fn = [&] {
     while (rtc_likely(pindex < bmp.pixel_amount()))
     {
+      RTC_TRACE_SCOPE_CAT("pixel generation", "fiber_fn");
       auto pixel{bmp.begin() + (pindex++)};
       auto primary{op.emit_ray(pixel->x, pixel->y)};
 

@@ -7,6 +7,7 @@
 
 #include "bounding_edge.hpp"
 
+#include "chrome_trace.hpp"
 #include "kd_tree_node.hpp"
 #include "rtc_log.hpp"
 #include "scoped_timer.hpp"
@@ -15,7 +16,8 @@ namespace rtc
 {
 kd_tree::kd_tree(const rtc::scene_model& ss) : bbox{ss.points}
 {
-  SCOPE_TIME_COUNTER;
+  RTC_TRACE_SCOPE_CAT("kd_tree::kd_tree", "kd_tree");
+
   const auto& p = ss.points;
   const auto& t = ss.triangles;
   const std::uint32_t max_depth = 1.3F * std::log2(t.size()) + 8;
@@ -60,6 +62,8 @@ auto kd_tree::compute_node_split_paramters(edge_buffer_array_t& edge_buffer,
                                            const rtc::bounding_box& node_bbox,
                                            const std::vector<rtc::bounding_box>& primitive_bboxes)
 {
+  RTC_TRACE_SCOPE_CAT("kd_tree::compute_node_split_paramters", "kd_tree");
+
   constexpr int isect_cost{80};
   constexpr int traversal_cost{1};
   constexpr rtc_float empty_bonus{0.5F};
@@ -75,6 +79,7 @@ auto kd_tree::compute_node_split_paramters(edge_buffer_array_t& edge_buffer,
 
   do
   {
+    RTC_TRACE_SCOPE_CAT("kd_tree::compute_node_split_paramters::while", "kd_tree");
     const rtc::axis axis2{next(axis)}, axis3{next(axis2)};
     int below{}, above(tr.size());
 
@@ -130,6 +135,8 @@ auto kd_tree::split_triangles(std::vector<std::uint32_t>&& tr_init,
                               const std::uint32_t best_axis,
                               const std::uint32_t best_offset)
 {
+  RTC_TRACE_SCOPE_CAT("kd_tree::split_triangles", "kd_tree");
+
   std::vector<std::uint32_t> tr{std::move(tr_init)}, left_set{}, right_set{};
 
   left_set.reserve(best_offset);

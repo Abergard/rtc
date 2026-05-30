@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iosfwd>
-#include <mutex>
+#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
@@ -14,6 +14,7 @@ class chrome_trace
 {
  public:
   static auto instance() -> chrome_trace&;
+  ~chrome_trace() noexcept;
 
   auto set_output_file(std::string file_name) -> void;
   auto add_complete_event(const char* name,
@@ -35,17 +36,23 @@ class chrome_trace
     std::uint64_t thread_id{};
   };
 
+  struct thread_buffer
+  {
+    std::vector<complete_event> events;
+    thread_buffer* next{};
+  };
+
   chrome_trace() = default;
 
+  auto current_thread_buffer() noexcept -> thread_buffer&;
   static auto process_id() noexcept -> std::uint32_t;
   static auto thread_id() noexcept -> std::uint64_t;
   static auto timestamp_us(std::chrono::steady_clock::time_point value) noexcept -> std::uint64_t;
-  static auto write_events(const std::string& file_name, const std::vector<complete_event>& events) -> void;
+  static auto write_events(const std::string& file_name, const std::vector<thread_buffer*>& buffers) -> void;
   static auto json_escape(std::ostream& out, const std::string& value) -> void;
 
-  std::mutex mutex;
+  std::atomic<thread_buffer*> buffers{};
   std::string output_file{"rtc_trace.json"};
-  std::vector<complete_event> events;
 };
 
 class chrome_trace_scope
