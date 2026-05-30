@@ -28,6 +28,7 @@
 #include <future>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -70,6 +71,43 @@ auto normalized(const Vec3& v) -> Vec3
 
 auto to_vec3(const rtc::math_point& p) -> Vec3 { return {p.x(), p.y(), p.z()}; }
 auto to_point(const Vec3& v) -> rtc::math_point { return {v.x, v.y, v.z}; }
+
+struct Ray
+{
+  Vec3 origin{};
+  Vec3 direction{};
+};
+
+auto intersect_triangle(const Ray& ray, const Vec3& a, const Vec3& b, const Vec3& c) -> std::optional<float>
+{
+  constexpr float epsilon = 0.000001F;
+  const auto edge1 = b - a;
+  const auto edge2 = c - a;
+  const auto p = cross(ray.direction, edge2);
+  const auto determinant = dot(edge1, p);
+
+  if (std::fabs(determinant) < epsilon)
+    return std::nullopt;
+
+  const auto invDeterminant = 1.0F / determinant;
+  const auto t = ray.origin - a;
+  const auto u = dot(t, p) * invDeterminant;
+
+  if (u < 0.0F || u > 1.0F)
+    return std::nullopt;
+
+  const auto q = cross(t, edge1);
+  const auto v = dot(ray.direction, q) * invDeterminant;
+
+  if (v < 0.0F || u + v > 1.0F)
+    return std::nullopt;
+
+  const auto distance = dot(edge2, q) * invDeterminant;
+  if (distance <= epsilon)
+    return std::nullopt;
+
+  return distance;
+}
 
 auto material_color(const rtc::scene_model& scene, const std::size_t triangle_index) -> rtc::color
 {
@@ -139,6 +177,7 @@ class SceneView final : public QOpenGLWidget
   {
     scene_ = std::move(scene);
     renderedImage_ = {};
+    selectedTriangle_ = std::nullopt;
     fitCameraToScene();
     update();
   }
@@ -171,6 +210,34 @@ class SceneView final : public QOpenGLWidget
     update();
   }
 
+  void setShowNormals(const bool enabled)
+  {
+    showNormals_ = enabled;
+    update();
+  }
+
+  void setBackfaceCulling(const bool enabled)
+  {
+    backfaceCulling_ = enabled;
+    update();
+  }
+
+  auto selectedTriangle() const noexcept -> std::optional<std::size_t> { return selectedTriangle_; }
+
+  auto flipSelectedTriangle() -> bool
+  {
+    if (!scene_ || !selectedTriangle_ || *selectedTriangle_ >= scene_->triangles.size())
+      return false;
+
+    const auto& triangle = scene_->triangles[*selectedTriangle_];
+    scene_->triangles[*selectedTriangle_] =
+        rtc::triangle3d{triangle.vertex_a(), triangle.vertex_c(), triangle.vertex_b()};
+    scene_->normals.assign(scene_->triangles.size(), rtc::math_vector{});
+    renderedImage_ = {};
+    update();
+    return true;
+  }
+
   auto cameraForRender(const QSize& renderSize) const -> rtc::camera
   {
     const auto basis = cameraBasis();
@@ -196,7 +263,6 @@ class SceneView final : public QOpenGLWidget
   void initializeGL() override
   {
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
     glEnable(GL_COLOR_MATERIAL);
@@ -239,6 +305,13 @@ class SceneView final : public QOpenGLWidget
   {
     lastMouse_ = event->pos();
     setFocus();
+
+    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))
+    {
+      selectedTriangle_ = pickTriangle(event->pos());
+      renderedImage_ = {};
+      update();
+    }
   }
 
   void mouseMoveEvent(QMouseEvent* event) override
@@ -247,7 +320,7 @@ class SceneView final : public QOpenGLWidget
     lastMouse_ = event->pos();
     renderedImage_ = {};
 
-    if (event->buttons() & Qt::LeftButton)
+    if ((event->buttons() & Qt::LeftButton) && !(event->modifiers() & Qt::ShiftModifier))
     {
       yaw_ += delta.x() * 0.45F;
       pitch_ = std::clamp(pitch_ + delta.y() * 0.45F, -89.0F, 89.0F);
@@ -402,12 +475,60 @@ class SceneView final : public QOpenGLWidget
     return basis;
   }
 
+  auto rayFromViewport(const QPoint& pos) const -> Ray
+  {
+    const auto basis = cameraBasis();
+    const auto planeDistance = std::max(1.0F, distance_ * 0.45F);
+    const auto aspect = std::max(1.0F, static_cast<float>(width())) / std::max(1.0F, static_cast<float>(height()));
+    const auto halfHeight = std::tan(fovYDegrees_ * pi / 360.0F) * planeDistance;
+    const auto halfWidth = halfHeight * aspect;
+    const auto planeCenter = basis.eye + basis.forward * planeDistance;
+    const auto upperLeft = planeCenter + basis.up * halfHeight - basis.right * halfWidth;
+    const auto upperRight = planeCenter + basis.up * halfHeight + basis.right * halfWidth;
+    const auto lowerLeft = planeCenter - basis.up * halfHeight - basis.right * halfWidth;
+
+    const auto u = std::clamp(pos.x() / std::max(1.0F, static_cast<float>(width() - 1)), 0.0F, 1.0F);
+    const auto v = std::clamp(pos.y() / std::max(1.0F, static_cast<float>(height() - 1)), 0.0F, 1.0F);
+    const auto point = upperLeft + (upperRight - upperLeft) * u + (lowerLeft - upperLeft) * v;
+    return {basis.eye, normalized(point - basis.eye)};
+  }
+
+  auto pickTriangle(const QPoint& pos) const -> std::optional<std::size_t>
+  {
+    if (!scene_)
+      return std::nullopt;
+
+    const auto ray = rayFromViewport(pos);
+    std::optional<std::size_t> result{};
+    auto nearest = std::numeric_limits<float>::max();
+
+    for (std::size_t i = 0; i < scene_->triangles.size(); ++i)
+    {
+      const auto& triangle = scene_->triangles[i];
+      if (triangle.vertex_a() >= scene_->points.size() || triangle.vertex_b() >= scene_->points.size() ||
+          triangle.vertex_c() >= scene_->points.size())
+        continue;
+
+      const auto hit = intersect_triangle(ray,
+                                          to_vec3(scene_->points[triangle.vertex_a()]),
+                                          to_vec3(scene_->points[triangle.vertex_b()]),
+                                          to_vec3(scene_->points[triangle.vertex_c()]));
+      if (hit && *hit < nearest)
+      {
+        nearest = *hit;
+        result = i;
+      }
+    }
+
+    return result;
+  }
+
   void setupProjection()
   {
     const auto aspect = std::max(1, width()) / static_cast<float>(std::max(1, height()));
     const auto nearPlane = std::max(0.01F, distance_ - radius_ * 4.0F);
     const auto farPlane = distance_ + radius_ * 8.0F;
-    const auto top = std::tan(45.0F * pi / 360.0F) * nearPlane;
+    const auto top = std::tan(fovYDegrees_ * pi / 360.0F) * nearPlane;
     const auto right = top * aspect;
 
     glMatrixMode(GL_PROJECTION);
@@ -461,6 +582,11 @@ class SceneView final : public QOpenGLWidget
     if (!scene_)
       return;
 
+    if (backfaceCulling_)
+      glEnable(GL_CULL_FACE);
+    else
+      glDisable(GL_CULL_FACE);
+
     glPolygonMode(GL_FRONT_AND_BACK, wireframe_ ? GL_LINE : GL_FILL);
 
     glBegin(GL_TRIANGLES);
@@ -486,6 +612,9 @@ class SceneView final : public QOpenGLWidget
     glEnd();
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    drawSelectedTriangle();
+    drawNormals();
+
     glDisable(GL_LIGHTING);
     glPointSize(8.0F);
     glBegin(GL_POINTS);
@@ -493,6 +622,65 @@ class SceneView final : public QOpenGLWidget
     {
       glColor3f(1.0F, 0.95F, 0.55F);
       glVertex3f(light.position.x(), light.position.y(), light.position.z());
+    }
+    glEnd();
+    glEnable(GL_LIGHTING);
+  }
+
+  void drawSelectedTriangle()
+  {
+    if (!scene_ || !selectedTriangle_ || *selectedTriangle_ >= scene_->triangles.size())
+      return;
+
+    const auto& triangle = scene_->triangles[*selectedTriangle_];
+    if (triangle.vertex_a() >= scene_->points.size() || triangle.vertex_b() >= scene_->points.size() ||
+        triangle.vertex_c() >= scene_->points.size())
+      return;
+
+    const auto a = scene_->points[triangle.vertex_a()];
+    const auto b = scene_->points[triangle.vertex_b()];
+    const auto c = scene_->points[triangle.vertex_c()];
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glLineWidth(3.0F);
+    glColor3f(1.0F, 0.9F, 0.1F);
+    glBegin(GL_LINE_LOOP);
+    glVertex3f(a.x(), a.y(), a.z());
+    glVertex3f(b.x(), b.y(), b.z());
+    glVertex3f(c.x(), c.y(), c.z());
+    glEnd();
+    glLineWidth(1.0F);
+    glEnable(GL_LIGHTING);
+  }
+
+  void drawNormals()
+  {
+    if (!scene_ || !showNormals_)
+      return;
+
+    const auto normalLength = std::max(0.04F, radius_ * 0.035F);
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glColor3f(0.15F, 0.85F, 1.0F);
+    glBegin(GL_LINES);
+    for (std::size_t i = 0; i < scene_->triangles.size(); ++i)
+    {
+      const auto& triangle = scene_->triangles[i];
+      if (triangle.vertex_a() >= scene_->points.size() || triangle.vertex_b() >= scene_->points.size() ||
+          triangle.vertex_c() >= scene_->points.size())
+        continue;
+
+      const auto a = to_vec3(scene_->points[triangle.vertex_a()]);
+      const auto b = to_vec3(scene_->points[triangle.vertex_b()]);
+      const auto c = to_vec3(scene_->points[triangle.vertex_c()]);
+      const auto center = (a + b + c) / 3.0F;
+      const auto normal = normalized(cross(b - a, c - a));
+      const auto end = center + normal * normalLength;
+
+      glVertex3f(center.x, center.y, center.z);
+      glVertex3f(end.x, end.y, end.z);
     }
     glEnd();
     glEnable(GL_LIGHTING);
@@ -508,6 +696,9 @@ class SceneView final : public QOpenGLWidget
   float pitch_{22.0F};
   float fovYDegrees_{45.0F};
   bool wireframe_{false};
+  bool showNormals_{false};
+  bool backfaceCulling_{true};
+  std::optional<std::size_t> selectedTriangle_{};
 };
 
 class MainWindow final : public QMainWindow
@@ -528,8 +719,14 @@ class MainWindow final : public QMainWindow
     auto* renderAction = toolbar->addAction("Render");
     auto* resetAction = toolbar->addAction("Reset Camera");
     auto* previewAction = toolbar->addAction("OpenGL Preview");
+    auto* flipSelectedAction = toolbar->addAction("Flip Selected");
     auto* wireframe = new QCheckBox("Wireframe", this);
+    auto* normals = new QCheckBox("Normals", this);
+    auto* backfaceCulling = new QCheckBox("Cull backfaces", this);
+    backfaceCulling->setChecked(true);
     toolbar->addWidget(wireframe);
+    toolbar->addWidget(normals);
+    toolbar->addWidget(backfaceCulling);
 
     statusBar()->showMessage("Load a BRS XML scene to begin.");
 
@@ -537,7 +734,20 @@ class MainWindow final : public QMainWindow
     connect(renderAction, &QAction::triggered, this, [this] { startRender(); });
     connect(resetAction, &QAction::triggered, view_, [this] { view_->resetCamera(); });
     connect(previewAction, &QAction::triggered, view_, [this] { view_->showOpenGlPreview(); });
+    connect(flipSelectedAction, &QAction::triggered, this, [this] {
+      if (view_->flipSelectedTriangle())
+      {
+        const auto selected = view_->selectedTriangle();
+        statusBar()->showMessage(QString("Flipped triangle %1").arg(static_cast<qulonglong>(*selected)));
+      }
+      else
+      {
+        statusBar()->showMessage("Select a triangle first with Shift + left click.");
+      }
+    });
     connect(wireframe, &QCheckBox::toggled, view_, &SceneView::setWireframe);
+    connect(normals, &QCheckBox::toggled, view_, &SceneView::setShowNormals);
+    connect(backfaceCulling, &QCheckBox::toggled, view_, &SceneView::setBackfaceCulling);
 
     renderPoll_.setInterval(100);
     connect(&renderPoll_, &QTimer::timeout, this, [this] { pollRender(); });
