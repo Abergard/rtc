@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QString>
 #include <QTimer>
 
 #include <future>
@@ -20,8 +21,10 @@ class MainWindow final : public QMainWindow
   void startRender();
   void pollRender();
   void flipSelectedTriangle();
+  void saveScene();
 
   SceneView* view_{};
+  QString loadedScenePath_{};
   QTimer renderPoll_{this};
   std::future<rtc::bitmap> renderFuture_{};
 };

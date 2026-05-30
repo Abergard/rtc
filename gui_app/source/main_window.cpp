@@ -8,8 +8,11 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 
+#include <boost/property_tree/xml_parser.hpp>
+
 #include <algorithm>
 #include <memory>
+#include <stdexcept>
 
 #include "brs.hpp"
 #include "image_conversion.hpp"
@@ -29,6 +32,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   auto* toolbar = addToolBar("Scene");
   toolbar->setMovable(false);
   auto* loadAction = toolbar->addAction("Load BRS");
+  auto* saveAction = toolbar->addAction("Save BRS");
   auto* renderAction = toolbar->addAction("Render");
   auto* resetAction = toolbar->addAction("Reset Camera");
   auto* previewAction = toolbar->addAction("OpenGL Preview");
@@ -44,6 +48,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   statusBar()->showMessage("Load a BRS XML scene to begin.");
 
   connect(loadAction, &QAction::triggered, this, [this] { loadScene(); });
+  connect(saveAction, &QAction::triggered, this, [this] { saveScene(); });
   connect(renderAction, &QAction::triggered, this, [this] { startRender(); });
   connect(resetAction, &QAction::triggered, view_, [this] { view_->resetCamera(); });
   connect(previewAction, &QAction::triggered, view_, [this] { view_->showOpenGlPreview(); });
@@ -73,6 +78,7 @@ void MainWindow::loadScene()
   {
     auto scene = std::make_shared<rtc::brs>(path.toStdString());
     view_->setScene(scene);
+    loadedScenePath_ = path;
     setWindowTitle("RTC GUI - " + QFileInfo(path).fileName());
     statusBar()->showMessage(QString("Loaded %1 triangles, %2 lights")
                                  .arg(static_cast<qulonglong>(scene->triangles.size()))
@@ -81,6 +87,51 @@ void MainWindow::loadScene()
   catch (const std::exception& e)
   {
     statusBar()->showMessage(QString("Load failed: %1").arg(e.what()));
+  }
+}
+
+void MainWindow::saveScene()
+{
+  if (loadedScenePath_.isEmpty() || !view_->hasScene())
+  {
+    statusBar()->showMessage("Load a BRS file before saving.");
+    return;
+  }
+
+  try
+  {
+    using boost::property_tree::ptree;
+
+    const auto scene = view_->scene();
+    ptree tree;
+    read_xml(loadedScenePath_.toStdString(), tree);
+    auto& trianglesNode = tree.get_child("model.triangles");
+
+    std::size_t triangleIndex{};
+    for (auto& node : trianglesNode)
+    {
+      if (node.first != "triangle")
+        continue;
+
+      if (triangleIndex >= scene->triangles.size())
+        throw std::runtime_error{"XML contains fewer in-memory triangles than expected."};
+
+      const auto& triangle = scene->triangles[triangleIndex++];
+      node.second.put("<xmlattr>.v1", triangle.vertex_a());
+      node.second.put("<xmlattr>.v2", triangle.vertex_b());
+      node.second.put("<xmlattr>.v3", triangle.vertex_c());
+    }
+
+    if (triangleIndex != scene->triangles.size())
+      throw std::runtime_error{"XML triangle count does not match the loaded scene."};
+
+    boost::property_tree::xml_writer_settings<std::string> settings{' ', 2};
+    write_xml(loadedScenePath_.toStdString(), tree, std::locale{}, settings);
+    statusBar()->showMessage(QString("Saved triangle winding to %1").arg(QFileInfo(loadedScenePath_).fileName()));
+  }
+  catch (const std::exception& e)
+  {
+    statusBar()->showMessage(QString("Save failed: %1").arg(e.what()));
   }
 }
 
