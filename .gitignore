@@ -1,5 +1,6 @@
 bin/*
 build/*
+build-release/*
 .vscode/
 compile_commands.json
 
