@@ -22,10 +22,15 @@ class MainWindow final : public QMainWindow
   void pollRender();
   void flipSelectedTriangle();
   void fixVisibleTriangleNormals();
+  void editSelectedMaterial();
+  void addLight();
+  void editSelectedLight();
+  void removeSelectedLight();
   void saveScene();
 
   SceneView* view_{};
   QString loadedScenePath_{};
+  bool loadedSceneIsBrs_{false};
   QTimer renderPoll_{this};
   std::future<rtc::bitmap> renderFuture_{};
 };

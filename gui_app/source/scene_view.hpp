@@ -6,6 +6,7 @@
 #include <QSize>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -37,9 +38,13 @@ class SceneView final : public QOpenGLWidget
   [[nodiscard]] auto hasScene() const noexcept -> bool;
   [[nodiscard]] auto scene() const noexcept -> std::shared_ptr<rtc::scene_model>;
   [[nodiscard]] auto selectedTriangle() const noexcept -> std::optional<std::size_t>;
+  [[nodiscard]] auto selectedLight() const noexcept -> std::optional<std::size_t>;
+  [[nodiscard]] auto selectedMaterial() const noexcept -> std::optional<std::uint16_t>;
   [[nodiscard]] auto cameraForRender(const QSize& renderSize) const -> rtc::camera;
   auto flipSelectedTriangle() -> bool;
   auto fixVisibleTriangleNormals(int sampleStep = 4) -> VisibleNormalFixResult;
+  auto addLightAtCameraTarget() -> std::size_t;
+  auto removeSelectedLight() -> bool;
 
  protected:
   void initializeGL() override;
@@ -65,6 +70,7 @@ class SceneView final : public QOpenGLWidget
   [[nodiscard]] auto cameraBasis() const -> CameraBasis;
   [[nodiscard]] auto rayFromViewport(const QPoint& pos) const -> Ray;
   [[nodiscard]] auto pickTriangle(const QPoint& pos) const -> std::optional<std::size_t>;
+  [[nodiscard]] auto pickLight(const QPoint& pos) const -> std::optional<std::size_t>;
   [[nodiscard]] auto frontVisibleTriangle(const Ray& ray) const -> std::optional<std::size_t>;
 
   void setupProjection();
@@ -72,6 +78,7 @@ class SceneView final : public QOpenGLWidget
   void drawScene();
   void drawSelectedTriangle();
   void drawNormals();
+  void drawLights();
 
   std::shared_ptr<rtc::scene_model> scene_{};
   QImage renderedImage_{};
@@ -86,5 +93,6 @@ class SceneView final : public QOpenGLWidget
   bool showNormals_{false};
   bool backfaceCulling_{true};
   std::optional<std::size_t> selectedTriangle_{};
+  std::optional<std::size_t> selectedLight_{};
 };
 }  // namespace rtc_gui

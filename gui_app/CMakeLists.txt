@@ -28,3 +28,4 @@ target_link_libraries(rtc_gui_app
 )
 
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/ DESTINATION ${CMAKE_BINARY_DIR}/gui_app/assets/brs_xml/)
+file(COPY ${CMAKE_SOURCE_DIR}/assets/blender/ DESTINATION ${CMAKE_BINARY_DIR}/gui_app/assets/blender/)
