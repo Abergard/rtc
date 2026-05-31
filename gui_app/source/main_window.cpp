@@ -37,6 +37,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   auto* resetAction = toolbar->addAction("Reset Camera");
   auto* previewAction = toolbar->addAction("OpenGL Preview");
   auto* flipSelectedAction = toolbar->addAction("Flip Selected");
+  auto* fixVisibleNormalsAction = toolbar->addAction("Fix Visible Normals");
   auto* wireframe = new QCheckBox("Wireframe", this);
   auto* normals = new QCheckBox("Normals", this);
   auto* backfaceCulling = new QCheckBox("Cull backfaces", this);
@@ -53,6 +54,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   connect(resetAction, &QAction::triggered, view_, [this] { view_->resetCamera(); });
   connect(previewAction, &QAction::triggered, view_, [this] { view_->showOpenGlPreview(); });
   connect(flipSelectedAction, &QAction::triggered, this, [this] { flipSelectedTriangle(); });
+  connect(fixVisibleNormalsAction, &QAction::triggered, this, [this] { fixVisibleTriangleNormals(); });
   connect(wireframe, &QCheckBox::toggled, view_, &SceneView::setWireframe);
   connect(normals, &QCheckBox::toggled, view_, &SceneView::setShowNormals);
   connect(backfaceCulling, &QCheckBox::toggled, view_, &SceneView::setBackfaceCulling);
@@ -205,5 +207,19 @@ void MainWindow::flipSelectedTriangle()
   {
     statusBar()->showMessage("Select a triangle first with Shift + left click.");
   }
+}
+
+void MainWindow::fixVisibleTriangleNormals()
+{
+  if (!view_->hasScene())
+  {
+    statusBar()->showMessage("Load a scene before fixing normals.");
+    return;
+  }
+
+  const auto result = view_->fixVisibleTriangleNormals();
+  statusBar()->showMessage(QString("Visible triangles: %1, flipped normals: %2. Use Save BRS to persist.")
+                               .arg(static_cast<qulonglong>(result.visibleTriangles))
+                               .arg(static_cast<qulonglong>(result.flippedTriangles)));
 }
 }  // namespace rtc_gui

@@ -21,6 +21,7 @@ class MainWindow final : public QMainWindow
   void startRender();
   void pollRender();
   void flipSelectedTriangle();
+  void fixVisibleTriangleNormals();
   void saveScene();
 
   SceneView* view_{};

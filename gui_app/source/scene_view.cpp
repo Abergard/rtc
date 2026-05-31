@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 #include "color.hpp"
 #include "math_vector.hpp"
@@ -38,6 +39,26 @@ auto color_component(float value) -> float
     value /= 255.0F;
 
   return std::clamp(value, 0.08F, 1.0F);
+}
+
+auto triangle_normal(const rtc::scene_model& scene, const rtc::triangle3d& triangle) -> Vec3
+{
+  const auto a = to_vec3(scene.points[triangle.vertex_a()]);
+  const auto b = to_vec3(scene.points[triangle.vertex_b()]);
+  const auto c = to_vec3(scene.points[triangle.vertex_c()]);
+  return normalized(cross(b - a, c - a));
+}
+
+auto valid_triangle(const rtc::scene_model& scene, const rtc::triangle3d& triangle) -> bool
+{
+  return triangle.vertex_a() < scene.points.size() && triangle.vertex_b() < scene.points.size() &&
+         triangle.vertex_c() < scene.points.size();
+}
+
+void flip_triangle(rtc::scene_model& scene, const std::size_t triangleIndex)
+{
+  const auto& triangle = scene.triangles[triangleIndex];
+  scene.triangles[triangleIndex] = rtc::triangle3d{triangle.vertex_a(), triangle.vertex_c(), triangle.vertex_b()};
 }
 }  // namespace
 
@@ -104,12 +125,66 @@ auto SceneView::flipSelectedTriangle() -> bool
   if (!scene_ || !selectedTriangle_ || *selectedTriangle_ >= scene_->triangles.size())
     return false;
 
-  const auto& triangle = scene_->triangles[*selectedTriangle_];
-  scene_->triangles[*selectedTriangle_] = rtc::triangle3d{triangle.vertex_a(), triangle.vertex_c(), triangle.vertex_b()};
+  flip_triangle(*scene_, *selectedTriangle_);
   scene_->normals.assign(scene_->triangles.size(), rtc::math_vector{});
   renderedImage_ = {};
   update();
   return true;
+}
+
+auto SceneView::fixVisibleTriangleNormals(const int sampleStep) -> VisibleNormalFixResult
+{
+  VisibleNormalFixResult result{};
+  if (!scene_ || scene_->triangles.empty())
+    return result;
+
+  const auto step = std::max(1, sampleStep);
+  std::vector<bool> visible(scene_->triangles.size(), false);
+  std::vector<float> visibleDot(scene_->triangles.size(), 0.0F);
+
+  const auto markVisible = [&](const Ray& ray) {
+    if (const auto triangle = frontVisibleTriangle(ray))
+    {
+      visible[*triangle] = true;
+      if (valid_triangle(*scene_, scene_->triangles[*triangle]))
+        visibleDot[*triangle] = dot(triangle_normal(*scene_, scene_->triangles[*triangle]), ray.direction);
+    }
+  };
+
+  for (int y = 0; y < height(); y += step)
+  {
+    for (int x = 0; x < width(); x += step)
+    {
+      markVisible(rayFromViewport(QPoint{x, y}));
+    }
+  }
+
+  for (const QPoint edgePoint : {QPoint{std::max(0, width() - 1), std::max(0, height() - 1)},
+                                 QPoint{std::max(0, width() - 1), 0},
+                                 QPoint{0, std::max(0, height() - 1)}})
+  {
+    markVisible(rayFromViewport(edgePoint));
+  }
+
+  for (std::size_t i = 0; i < visible.size(); ++i)
+  {
+    if (!visible[i] || !valid_triangle(*scene_, scene_->triangles[i]))
+      continue;
+
+    ++result.visibleTriangles;
+    if (visibleDot[i] > 0.0F)
+    {
+      flip_triangle(*scene_, i);
+      ++result.flippedTriangles;
+    }
+  }
+
+  if (result.flippedTriangles != 0)
+    scene_->normals.assign(scene_->triangles.size(), rtc::math_vector{});
+
+  renderedImage_ = {};
+  update();
+  return result;
 }
 
 auto SceneView::cameraForRender(const QSize& renderSize) const -> rtc::camera
@@ -358,18 +433,20 @@ auto SceneView::rayFromViewport(const QPoint& pos) const -> Ray
 
 auto SceneView::pickTriangle(const QPoint& pos) const -> std::optional<std::size_t>
 {
+  return frontVisibleTriangle(rayFromViewport(pos));
+}
+
+auto SceneView::frontVisibleTriangle(const Ray& ray) const -> std::optional<std::size_t>
+{
   if (!scene_)
     return std::nullopt;
 
-  const auto ray = rayFromViewport(pos);
   std::optional<std::size_t> result{};
   auto nearest = std::numeric_limits<float>::max();
-
   for (std::size_t i = 0; i < scene_->triangles.size(); ++i)
   {
     const auto& triangle = scene_->triangles[i];
-    if (triangle.vertex_a() >= scene_->points.size() || triangle.vertex_b() >= scene_->points.size() ||
-        triangle.vertex_c() >= scene_->points.size())
+    if (!valid_triangle(*scene_, triangle))
       continue;
 
     const auto hit = intersect_triangle(ray,

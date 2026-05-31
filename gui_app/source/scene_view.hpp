@@ -5,6 +5,7 @@
 #include <QPoint>
 #include <QSize>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 
@@ -17,6 +18,12 @@ namespace rtc_gui
 class SceneView final : public QOpenGLWidget
 {
  public:
+  struct VisibleNormalFixResult
+  {
+    std::size_t visibleTriangles{};
+    std::size_t flippedTriangles{};
+  };
+
   explicit SceneView(QWidget* parent = nullptr);
 
   void setScene(std::shared_ptr<rtc::scene_model> scene);
@@ -32,6 +39,7 @@ class SceneView final : public QOpenGLWidget
   [[nodiscard]] auto selectedTriangle() const noexcept -> std::optional<std::size_t>;
   [[nodiscard]] auto cameraForRender(const QSize& renderSize) const -> rtc::camera;
   auto flipSelectedTriangle() -> bool;
+  auto fixVisibleTriangleNormals(int sampleStep = 4) -> VisibleNormalFixResult;
 
  protected:
   void initializeGL() override;
@@ -57,6 +65,7 @@ class SceneView final : public QOpenGLWidget
   [[nodiscard]] auto cameraBasis() const -> CameraBasis;
   [[nodiscard]] auto rayFromViewport(const QPoint& pos) const -> Ray;
   [[nodiscard]] auto pickTriangle(const QPoint& pos) const -> std::optional<std::size_t>;
+  [[nodiscard]] auto frontVisibleTriangle(const Ray& ray) const -> std::optional<std::size_t>;
 
   void setupProjection();
   void setupCamera();
