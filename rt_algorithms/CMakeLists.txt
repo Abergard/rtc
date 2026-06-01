@@ -38,7 +38,7 @@ add_executable(rtc_rt_algorithms_ut ${RTC_rt_algorithms_TESTS})
 target_include_directories(rtc_rt_algorithms_ut SYSTEM PRIVATE ${GMOCK_INCLUDE_DIR} ${GTEST_INCLUDE_DIR})
 
 set_target_properties(rtc_rt_algorithms_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

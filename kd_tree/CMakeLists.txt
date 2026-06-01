@@ -25,7 +25,7 @@ FILE(GLOB RTC_KDTREE_SOURCES
 )
 add_library(rtc_kd_tree ${RTC_KDTREE_SOURCES})
 set_target_properties(rtc_kd_tree PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
@@ -37,7 +37,7 @@ FILE(GLOB RTC_KDTREE_UT
 )
 add_executable(kd_tree_ut ${RTC_KDTREE_UT})
 set_target_properties(kd_tree_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

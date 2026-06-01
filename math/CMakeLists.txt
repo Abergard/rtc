@@ -22,7 +22,7 @@ FILE(GLOB RTC_MATH_SOURCES
 add_library(rtc_math ${RTC_MATH_SOURCES})
 
 set_target_properties(rtc_math PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
@@ -37,7 +37,7 @@ FILE(GLOB RTC_MATH_TESTS
 
 add_executable(rtc_math_ut ${RTC_MATH_TESTS})
 set_target_properties(rtc_math_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

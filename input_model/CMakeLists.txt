@@ -24,7 +24,7 @@ add_library(input_model
             )
 
 set_target_properties(input_model PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
@@ -42,7 +42,7 @@ if(${ENABLE_COVERAGE})
 endif()
 
 set_target_properties(input_model_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

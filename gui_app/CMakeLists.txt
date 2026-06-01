@@ -13,7 +13,7 @@ add_executable(rtc_gui_app
 )
 
 set_target_properties(rtc_gui_app PROPERTIES
-  CXX_STANDARD 17
+  CXX_STANDARD 20
   CXX_STANDARD_REQUIRED YES
   CXX_EXTENSIONS NO
   AUTOMOC OFF

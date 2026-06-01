@@ -35,7 +35,7 @@ FILE(GLOB RTC_image_generation_TESTS
 
 add_executable(rtc_image_generation_ut ${RTC_image_generation_TESTS})
 set_target_properties(rtc_image_generation_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

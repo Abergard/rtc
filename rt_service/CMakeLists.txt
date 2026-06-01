@@ -34,7 +34,7 @@ FILE(GLOB RTC_RT_SERVICE_TESTS
 
 add_executable(rtc_rt_service_ut ${RTC_RT_SERVICE_TESTS})
 set_target_properties(rtc_rt_service_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )

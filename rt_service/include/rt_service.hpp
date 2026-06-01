@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <future>
@@ -13,6 +12,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <boost/thread/condition_variable.hpp>
+#include <boost/thread/lock_guard.hpp>
+#include <boost/thread/mutex.hpp>
 
 #include "bitmap.hpp"
 #include "color.hpp"
@@ -89,17 +92,17 @@ class rt_service
     auto submit(std::function<void()> job) -> void;
     auto finish() -> void;
 
-    mutable std::mutex mutex;
-    std::condition_variable batch_available;
-    std::condition_variable batch_finished;
     std::vector<std::function<void()>> pending_jobs;
     std::vector<std::function<void()>> active_jobs;
     std::vector<std::thread> workers;
+    boost::mutex wait_mutex;
+    boost::condition_variable wait_condition;
+    std::mutex exception_mutex;
     std::exception_ptr worker_exception;
     std::atomic<std::size_t> next_job{};
     std::atomic<std::size_t> jobs_left{};
-    std::atomic<std::size_t> workers_in_batch{};
-    std::uint64_t batch_generation{};
+    std::atomic<int> workers_in_batch{};
+    std::atomic<int> batch_generation{};
     std::atomic<bool> stopping{};
 
     std::atomic<std::uint64_t> submitted_tiles{};
@@ -111,6 +114,9 @@ class rt_service
 
    private:
     auto worker_loop() -> void;
+    auto wait_for_change(std::atomic<int>& value, int expected) -> void;
+    auto notify_one() -> void;
+    auto notify_all() -> void;
   };
 
   struct sync_trace_result
@@ -158,12 +164,9 @@ rt_service<T>::scheduler_state::scheduler_state(const std::uint32_t worker_count
 template <typename T>
 rt_service<T>::scheduler_state::~scheduler_state() noexcept
 {
-  {
-    const std::lock_guard<std::mutex> lock{mutex};
-    stopping.store(true, std::memory_order_release);
-  }
-
-  batch_available.notify_all();
+  stopping.store(true, std::memory_order_release);
+  batch_generation.fetch_add(1, std::memory_order_release);
+  notify_all();
 
   for (auto& worker : workers)
   {
@@ -190,29 +193,36 @@ auto rt_service<T>::scheduler_state::finish() -> void
 
   std::exception_ptr exception;
   {
-    std::unique_lock<std::mutex> lock{mutex};
+    const std::lock_guard<std::mutex> lock{exception_mutex};
+    exception = worker_exception;
+    worker_exception = nullptr;
+  }
+
+  {
     active_jobs = std::move(pending_jobs);
     pending_jobs.clear();
     next_job.store(0, std::memory_order_relaxed);
     jobs_left.store(active_jobs.size(), std::memory_order_release);
-    workers_in_batch.store(workers.size(), std::memory_order_release);
-    exception = worker_exception;
-    worker_exception = nullptr;
-    ++batch_generation;
+    workers_in_batch.store(static_cast<int>(workers.size()), std::memory_order_release);
   }
 
-  batch_available.notify_all();
+  batch_generation.fetch_add(1, std::memory_order_release);
+  notify_all();
+
+  auto remaining_workers = workers_in_batch.load(std::memory_order_acquire);
+  while (remaining_workers != 0)
+  {
+    wait_for_change(workers_in_batch, remaining_workers);
+    remaining_workers = workers_in_batch.load(std::memory_order_acquire);
+  }
 
   {
-    std::unique_lock<std::mutex> lock{mutex};
-    batch_finished.wait(lock, [this] {
-      return jobs_left.load(std::memory_order_acquire) == 0 &&
-             workers_in_batch.load(std::memory_order_acquire) == 0;
-    });
+    const std::lock_guard<std::mutex> lock{exception_mutex};
     exception = worker_exception;
     worker_exception = nullptr;
-    active_jobs.clear();
   }
+
+  active_jobs.clear();
 
   if (exception)
     std::rethrow_exception(exception);
@@ -221,21 +231,16 @@ auto rt_service<T>::scheduler_state::finish() -> void
 template <typename T>
 auto rt_service<T>::scheduler_state::worker_loop() -> void
 {
-  std::uint64_t observed_generation{};
+  auto observed_generation = batch_generation.load(std::memory_order_acquire);
 
   while (true)
   {
-    {
-      std::unique_lock<std::mutex> lock{mutex};
-      batch_available.wait(lock, [this, observed_generation] {
-        return stopping.load(std::memory_order_acquire) || batch_generation != observed_generation;
-      });
+    wait_for_change(batch_generation, observed_generation);
 
-      if (stopping.load(std::memory_order_acquire))
-        return;
+    if (stopping.load(std::memory_order_acquire))
+      return;
 
-      observed_generation = batch_generation;
-    }
+    observed_generation = batch_generation.load(std::memory_order_acquire);
 
     while (true)
     {
@@ -249,7 +254,7 @@ auto rt_service<T>::scheduler_state::worker_loop() -> void
       }
       catch (...)
       {
-        const std::lock_guard<std::mutex> lock{mutex};
+        const std::lock_guard<std::mutex> lock{exception_mutex};
         if (!worker_exception)
           worker_exception = std::current_exception();
       }
@@ -259,8 +264,29 @@ auto rt_service<T>::scheduler_state::worker_loop() -> void
     }
 
     if (workers_in_batch.fetch_sub(1, std::memory_order_acq_rel) == 1)
-      batch_finished.notify_one();
+    {
+      notify_one();
+    }
   }
+}
+
+template <typename T>
+auto rt_service<T>::scheduler_state::wait_for_change(std::atomic<int>& value, const int expected) -> void
+{
+  boost::unique_lock<boost::mutex> lock{wait_mutex};
+  wait_condition.wait(lock, [&] { return value.load(std::memory_order_acquire) != expected; });
+}
+
+template <typename T>
+auto rt_service<T>::scheduler_state::notify_one() -> void
+{
+  wait_condition.notify_one();
+}
+
+template <typename T>
+auto rt_service<T>::scheduler_state::notify_all() -> void
+{
+  wait_condition.notify_all();
 }
 
 template <typename T>

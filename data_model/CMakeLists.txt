@@ -22,7 +22,7 @@ FILE(GLOB RTC_DATA_MODEL_SOURCES
 )
 add_library(rtc_data_model ${RTC_DATA_MODEL_SOURCES})
 set_target_properties(rtc_data_model PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
@@ -38,7 +38,7 @@ add_executable(rtc_data_model_ut ${RTC_DATA_MODEL_TESTS})
 target_include_directories(rtc_data_model_ut SYSTEM PRIVATE ${GMOCK_INCLUDE_DIR} ${GTEST_INCLUDE_DIR})
 
 set_target_properties(rtc_data_model_ut PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
