@@ -5,7 +5,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <future>
 #include <memory>
@@ -91,13 +90,17 @@ class rt_service
     auto finish() -> void;
 
     mutable std::mutex mutex;
-    std::condition_variable job_available;
-    std::condition_variable job_finished;
-    std::deque<std::function<void()>> jobs;
+    std::condition_variable batch_available;
+    std::condition_variable batch_finished;
+    std::vector<std::function<void()>> pending_jobs;
+    std::vector<std::function<void()>> active_jobs;
     std::vector<std::thread> workers;
     std::exception_ptr worker_exception;
-    std::size_t active_jobs{};
-    bool stopping{};
+    std::atomic<std::size_t> next_job{};
+    std::atomic<std::size_t> jobs_left{};
+    std::atomic<std::size_t> workers_in_batch{};
+    std::uint64_t batch_generation{};
+    std::atomic<bool> stopping{};
 
     std::atomic<std::uint64_t> submitted_tiles{};
     std::atomic<std::uint64_t> completed_tiles{};
@@ -157,10 +160,10 @@ rt_service<T>::scheduler_state::~scheduler_state() noexcept
 {
   {
     const std::lock_guard<std::mutex> lock{mutex};
-    stopping = true;
+    stopping.store(true, std::memory_order_release);
   }
 
-  job_available.notify_all();
+  batch_available.notify_all();
 
   for (auto& worker : workers)
   {
@@ -172,27 +175,43 @@ rt_service<T>::scheduler_state::~scheduler_state() noexcept
 template <typename T>
 auto rt_service<T>::scheduler_state::submit(std::function<void()> job) -> void
 {
-  {
-    const std::lock_guard<std::mutex> lock{mutex};
-    if (stopping)
-      throw std::runtime_error{"rt_service scheduler is stopping"};
+  if (stopping.load(std::memory_order_acquire))
+    throw std::runtime_error{"rt_service scheduler is stopping"};
 
-    jobs.emplace_back(std::move(job));
-    ++submitted_tiles;
-  }
-
-  job_available.notify_one();
+  pending_jobs.emplace_back(std::move(job));
+  ++submitted_tiles;
 }
 
 template <typename T>
 auto rt_service<T>::scheduler_state::finish() -> void
 {
+  if (pending_jobs.empty())
+    return;
+
   std::exception_ptr exception;
   {
     std::unique_lock<std::mutex> lock{mutex};
-    job_finished.wait(lock, [this] { return jobs.empty() && active_jobs == 0; });
+    active_jobs = std::move(pending_jobs);
+    pending_jobs.clear();
+    next_job.store(0, std::memory_order_relaxed);
+    jobs_left.store(active_jobs.size(), std::memory_order_release);
+    workers_in_batch.store(workers.size(), std::memory_order_release);
     exception = worker_exception;
     worker_exception = nullptr;
+    ++batch_generation;
+  }
+
+  batch_available.notify_all();
+
+  {
+    std::unique_lock<std::mutex> lock{mutex};
+    batch_finished.wait(lock, [this] {
+      return jobs_left.load(std::memory_order_acquire) == 0 &&
+             workers_in_batch.load(std::memory_order_acquire) == 0;
+    });
+    exception = worker_exception;
+    worker_exception = nullptr;
+    active_jobs.clear();
   }
 
   if (exception)
@@ -202,38 +221,45 @@ auto rt_service<T>::scheduler_state::finish() -> void
 template <typename T>
 auto rt_service<T>::scheduler_state::worker_loop() -> void
 {
+  std::uint64_t observed_generation{};
+
   while (true)
   {
-    std::function<void()> job;
     {
       std::unique_lock<std::mutex> lock{mutex};
-      job_available.wait(lock, [this] { return stopping || !jobs.empty(); });
+      batch_available.wait(lock, [this, observed_generation] {
+        return stopping.load(std::memory_order_acquire) || batch_generation != observed_generation;
+      });
 
-      if (stopping && jobs.empty())
+      if (stopping.load(std::memory_order_acquire))
         return;
 
-      job = std::move(jobs.front());
-      jobs.pop_front();
-      ++active_jobs;
+      observed_generation = batch_generation;
     }
 
-    try
+    while (true)
     {
-      job();
-    }
-    catch (...)
-    {
-      const std::lock_guard<std::mutex> lock{mutex};
-      if (!worker_exception)
-        worker_exception = std::current_exception();
-    }
+      const auto index = next_job.fetch_add(1, std::memory_order_relaxed);
+      if (index >= active_jobs.size())
+        break;
 
-    {
-      const std::lock_guard<std::mutex> lock{mutex};
-      --active_jobs;
+      try
+      {
+        active_jobs[index]();
+      }
+      catch (...)
+      {
+        const std::lock_guard<std::mutex> lock{mutex};
+        if (!worker_exception)
+          worker_exception = std::current_exception();
+      }
+
       ++completed_tiles;
+      jobs_left.fetch_sub(1, std::memory_order_acq_rel);
     }
-    job_finished.notify_all();
+
+    if (workers_in_batch.fetch_sub(1, std::memory_order_acq_rel) == 1)
+      batch_finished.notify_one();
   }
 }
 
