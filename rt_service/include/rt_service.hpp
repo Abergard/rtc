@@ -69,8 +69,7 @@ template <typename _rt = ::rtc::kdtree_rt>
 class rt_service
 {
  public:
-  static constexpr std::size_t queue_capacity{256};
-  static constexpr std::uint16_t default_tile_size{16};
+  static constexpr std::uint16_t default_tile_size{32};
 
   using ray_tracer = _rt;
   using trace_result = std::future<rtc::intersection>;

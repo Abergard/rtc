@@ -1,5 +1,7 @@
 #include "gtest/gtest.h"
 
+#include "bvh.hpp"
+#include "bvh_rt.hpp"
 #include "kd_tree.hpp"
 #include "scene_model.hpp"
 #include "brs.hpp"
@@ -49,6 +51,32 @@ TEST(kd_tree_ut, room_test_found_2)
   const rtc::math_ray ray{v, scene->optical_system.view_point};
 
   rtc::ray_tracer<rtc::kd_tree> finder{std::move(acc), scene};
+  const auto intersect = finder.trace_ray(ray);
+
+  ASSERT_TRUE(intersect && intersect.is_with(619));
+}
+
+TEST(bvh_ut, room_test_found_2)
+{
+  auto scene = std::make_shared<rtc::brs>("./room.xml");
+  rtc::bvh acc{*scene};
+
+  const rtc::math_vector v{-4.396932F, -0.778016F, 6.014521F};
+  const rtc::math_ray ray{v, scene->optical_system.view_point};
+
+  rtc::ray_tracer<rtc::bvh> finder{std::move(acc), scene};
+  const auto intersect = finder.trace_ray(ray);
+
+  ASSERT_TRUE(intersect && intersect.is_with(619));
+}
+
+TEST(bvh_rt_ut, room_test_found_2)
+{
+  auto scene = std::make_shared<rtc::brs>("./room.xml");
+  rtc::bvh_rt finder{scene};
+
+  const rtc::math_vector v{-4.396932F, -0.778016F, 6.014521F};
+  const rtc::math_ray ray{v, scene->optical_system.view_point};
   const auto intersect = finder.trace_ray(ray);
 
   ASSERT_TRUE(intersect && intersect.is_with(619));
@@ -139,4 +167,3 @@ TEST(kd_tree_ut, DISABLED_cornell_box_test)
 }
 
 }
-
