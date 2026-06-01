@@ -70,12 +70,12 @@ inline auto operator<<(std::ostream& s, const math_vector& v) noexcept -> std::o
   return s << "[" << v.x() << ", " << v.y() << ", " << v.z() << "]v";
 }
 
-rtc_pure inline constexpr auto dot(const math_vector& v1, const math_vector& v2) noexcept -> rtc_float
+rtc_hot rtc_pure inline constexpr auto dot(const math_vector& v1, const math_vector& v2) noexcept -> rtc_float
 {
   return v1.x() * v2.x() + v1.y() * v2.y() + v1.z() * v2.z();
 }
 
-rtc_pure inline constexpr auto lengthSQ(const math_vector& v) noexcept -> rtc_float { return dot(v, v); }
+rtc_hot rtc_pure inline constexpr auto lengthSQ(const math_vector& v) noexcept -> rtc_float { return dot(v, v); }
 
 inline auto length(const math_vector& v) noexcept -> rtc_float { return std::sqrt(lengthSQ(v)); }
 

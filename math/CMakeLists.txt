@@ -65,4 +65,18 @@ if(TARGET benchmark::benchmark)
       DEPENDS point_in_triangle_benchmark
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/math
   )
+
+  add_executable(math_vector_benchmark benchmark/math_vector_benchmark.cpp)
+  set_target_properties(math_vector_benchmark PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+
+  target_link_libraries(math_vector_benchmark PRIVATE rtc_math benchmark::benchmark)
+  add_custom_target(run_math_vector_benchmark
+      COMMAND math_vector_benchmark --benchmark_min_time=0.5s
+      DEPENDS math_vector_benchmark
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/math
+  )
 endif()
