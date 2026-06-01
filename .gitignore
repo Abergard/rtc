@@ -3,4 +3,6 @@ build/*
 build-release/*
 .vscode/
 compile_commands.json
+rsyslog*
+rtc_trace.json
 
