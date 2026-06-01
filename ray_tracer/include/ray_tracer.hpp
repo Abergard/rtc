@@ -73,7 +73,8 @@ auto ray_tracer<T>::trace_ray(const rtc::math_ray& ray) const noexcept -> rtc::i
   rtc::intersection intersect{};
   auto current_hit = std::numeric_limits<rtc_float>::max();
 
-  for (auto e = storage.cbegin(ray); e != storage.cend(ray); ++e)
+  const auto end = storage.cend(ray);
+  for (auto e = storage.cbegin(ray); e != end; ++e)
   {
     for (const auto ti : *e)
     {

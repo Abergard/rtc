@@ -59,7 +59,8 @@ void run_traversal_benchmark(benchmark::State& state, scene_case& data)
 
     for (const auto& ray : data.rays)
     {
-      for (auto it = tree.cbegin(ray); it != tree.cend(ray); ++it)
+      const auto end = tree.cend(ray);
+      for (auto it = tree.cbegin(ray); it != end; ++it)
       {
         ++leaves;
         for (auto triangle_index : *it)

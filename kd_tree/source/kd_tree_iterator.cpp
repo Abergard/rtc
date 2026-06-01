@@ -8,14 +8,18 @@ namespace rtc
 {
 auto kd_tree::const_iterator::operator*() const noexcept -> triangle_range
 {
-  assert(current_node && leaf_triangles);
-  const auto first = leaf_triangles->data() + current_node->triangles.begin;
-  return {first, first + current_node->triangles.count};
+  assert(tree_nodes && leaf_triangles && current_node != invalid_node);
+  const auto& node = (*tree_nodes)[current_node];
+  const auto first = leaf_triangles->data() + node.triangles_begin;
+  return {first, first + node.triangles_count};
 }
 
 
 auto kd_tree::const_iterator::operator==(const kd_tree::const_iterator& i) const noexcept -> bool
 {
+  if (current_node == invalid_node && i.current_node == invalid_node)
+    return true;
+
   return current_node == i.current_node;
 }
 
@@ -25,11 +29,13 @@ auto kd_tree::const_iterator::operator!=(const kd_tree::const_iterator& i) const
 }
 
 kd_tree::const_iterator::const_iterator(const rtc::math_ray& r,
+                                        const std::vector<tree_node>* tree,
                                         const std::vector<std::uint32_t>* triangle_storage,
                                         node_t node)
-    : leaf_triangles{triangle_storage}
+    : tree_nodes{tree}, leaf_triangles{triangle_storage}
 {
-  nodes.push(node);
+  if (tree_nodes && node.node != invalid_node && nodes_size < nodes.size())
+    nodes[nodes_size++] = node;
   ray = {1.0F / r.direction(), r.origin()};
 
   (*this).operator++();
@@ -37,23 +43,23 @@ kd_tree::const_iterator::const_iterator(const rtc::math_ray& r,
 
 auto kd_tree::const_iterator::operator++() noexcept -> const_iterator&
 {
-  if (rtc_unlikely(nodes.empty()))
-    return current_node = nullptr, *this;
+  if (rtc_unlikely(!tree_nodes || !nodes_size))
+    return current_node = invalid_node, *this;
 
-  auto [node, tmin, tmax] = nodes.top();
-  nodes.pop();
+  auto [node, tmin, tmax] = nodes[--nodes_size];
 
-  while (rtc_likely(node != nullptr))
+  while (rtc_likely(node != invalid_node))
   {
     if (rtc_unlikely(nearest_intersect_ray_value < tmin))
     {
-      current_node = nullptr;
+      current_node = invalid_node;
       break;
     }
 
-    if (!node->is_leaf())
+    const auto& tree_node = (*tree_nodes)[node];
+    if (!tree_node.is_leaf())
     {
-      const auto [near, far, tsplit] = get_children_and_split_value(node, ray);
+      const auto [near, far, tsplit] = get_children_and_split_value(tree_node, ray);
 
       if ((tsplit > tmax) || (tsplit <= 0))
       {
@@ -65,7 +71,8 @@ auto kd_tree::const_iterator::operator++() noexcept -> const_iterator&
       }
       else
       {
-        nodes.push({far, tsplit, tmax});
+        if (nodes_size < nodes.size())
+          nodes[nodes_size++] = {far, tsplit, tmax};
         node = near;
         tmax = tsplit;
       }
@@ -79,21 +86,21 @@ auto kd_tree::const_iterator::operator++() noexcept -> const_iterator&
   return *this;
 }
 
-auto kd_tree::const_iterator::get_children_and_split_value(const tree_node* const node, const math_ray& r) const
-    noexcept -> std::tuple<tree_node*, tree_node*, rtc_float>
+auto kd_tree::const_iterator::get_children_and_split_value(const tree_node& node, const math_ray& r) const noexcept
+    -> std::tuple<std::uint32_t, std::uint32_t, rtc_float>
 {
-  const auto axis = node->axis.split;
-  const auto tsplit = (node->axis.value - r.origin().axis(axis)) * r.direction().axis(axis);
-  const bool left_is_near = (r.origin().axis(axis) < node->axis.value) ||
-                            (r.origin().axis(axis) == node->axis.value && r.direction().axis(axis) <= 0);
+  const auto axis = node.axis();
+  const auto tsplit = (node.split_value - r.origin().axis(axis)) * r.direction().axis(axis);
+  const bool left_is_near = (r.origin().axis(axis) < node.split_value) ||
+                            (r.origin().axis(axis) == node.split_value && r.direction().axis(axis) <= 0);
 
   if (left_is_near)
   {
-    return {node->left.get(), node->right.get(), tsplit};
+    return {node.left, node.right, tsplit};
   }
   else
   {
-    return {node->right.get(), node->left.get(), tsplit};
+    return {node.right, node.left, tsplit};
   }
 }
 
