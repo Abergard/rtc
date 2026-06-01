@@ -86,7 +86,7 @@ auto p = rtc::make_pixel_composer(std::ref(b),
                                   std::ref(light),
                                   std::ref(color));
 
-auto pixel = p.make_color(rtc::bitmap_pixel{10, 10},
+auto pixel = p.make_color(rtc::screen_surface_pixel{10, 10},
                           rtc::black_color,
                           rtc::incremental);
 

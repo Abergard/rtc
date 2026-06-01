@@ -53,7 +53,7 @@ struct pixel
   }
 };
 
-class bitmap : std::vector<rtc::pixel>
+class screen_surface : std::vector<rtc::pixel>
 {
   using base = std::vector<rtc::pixel>;
   struct header
@@ -80,17 +80,17 @@ class bitmap : std::vector<rtc::pixel>
     std::uint16_t biReserved;       // Reserved field
   };
 
-  explicit bitmap() noexcept;
+  explicit screen_surface() noexcept;
 
  public:
-  explicit bitmap(const std::string&);
-  explicit bitmap(const std::uint16_t, const std::uint16_t);
+  explicit screen_surface(const std::string&);
+  explicit screen_surface(const std::uint16_t, const std::uint16_t);
 
-  bitmap(const bitmap&) = default;
-  bitmap(bitmap&&) noexcept = default;
-  auto operator=(const bitmap&) -> bitmap& = default;
-  auto operator=(bitmap&&) noexcept -> bitmap& = default;
-  ~bitmap() = default;
+  screen_surface(const screen_surface&) = default;
+  screen_surface(screen_surface&&) noexcept = default;
+  auto operator=(const screen_surface&) -> screen_surface& = default;
+  auto operator=(screen_surface&&) noexcept -> screen_surface& = default;
+  ~screen_surface() = default;
 
   using base::begin;
   using base::const_iterator;
@@ -108,25 +108,25 @@ class bitmap : std::vector<rtc::pixel>
   void save(const std::string&) const;
   auto assign(const rtc::pixel&) noexcept -> bool;
   auto at(const std::uint16_t, const std::uint16_t) -> color_rgb&;
-  auto resize(const std::uint16_t, const std::uint16_t) noexcept -> bitmap&;
+  auto resize(const std::uint16_t, const std::uint16_t) noexcept -> screen_surface&;
   auto operator()(const std::uint16_t, const std::uint16_t) -> color_rgb&;
   [[nodiscard]] auto at(const std::uint16_t, const std::uint16_t) const -> const color_rgb&;
   auto operator()(const std::uint16_t, const std::uint16_t) const -> const color_rgb&;
   auto assign(const std::uint16_t, const std::uint16_t, const color_rgb&) noexcept -> bool;
 
-  auto compare(const bitmap&, const std::function<bool(const rtc::color_rgb&, const rtc::color_rgb&)>&)
+  auto compare(const screen_surface&, const std::function<bool(const rtc::color_rgb&, const rtc::color_rgb&)>&)
       -> std::optional<bool>;
 
-  auto revert() noexcept -> bitmap&;
-  auto operator!() const -> bitmap;
-  auto swap(bitmap& bmp) noexcept(noexcept(std::declval<base>().swap(std::declval<base&>()))) -> bitmap&;
+  auto revert() noexcept -> screen_surface&;
+  auto operator!() const -> screen_surface;
+  auto swap(screen_surface& bmp) noexcept(noexcept(std::declval<base>().swap(std::declval<base&>()))) -> screen_surface&;
   [[nodiscard]] auto pixel_amount() const noexcept -> std::size_t;
-  auto clear(const color_rgb& = {}) noexcept -> bitmap&;
-  auto insert(const std::uint16_t, const std::uint16_t, const bitmap&) -> bitmap&;
+  auto clear(const color_rgb& = {}) noexcept -> screen_surface&;
+  auto insert(const std::uint16_t, const std::uint16_t, const screen_surface&) -> screen_surface&;
   [[nodiscard]] auto trim(const std::uint16_t, const std::uint16_t, const std::uint16_t, const std::uint16_t) const
-      -> bitmap;
+      -> screen_surface;
 
-  auto draw(const std::function<rtc::color_rgb(std::uint16_t, std::uint16_t)>&) noexcept -> bitmap&;
+  auto draw(const std::function<rtc::color_rgb(std::uint16_t, std::uint16_t)>&) noexcept -> screen_surface&;
 
  private:
   void reset() noexcept;
@@ -134,11 +134,11 @@ class bitmap : std::vector<rtc::pixel>
   header header_data;
 };
 
-inline auto operator==(const bitmap& a, const bitmap& b) noexcept -> bool
+inline auto operator==(const screen_surface& a, const screen_surface& b) noexcept -> bool
 {
   return (a.pixel_amount() == b.pixel_amount()) && std::equal(a.begin(), a.end(), b.begin());
 }
 
-inline auto operator!=(const bitmap& a, const bitmap& b) noexcept -> bool { return !(a == b); }
+inline auto operator!=(const screen_surface& a, const screen_surface& b) noexcept -> bool { return !(a == b); }
 
 }  // namespace rtc

@@ -9,23 +9,23 @@
 
 namespace rtc
 {
-bitmap::bitmap() noexcept : header_data{} { reset(); }
+screen_surface::screen_surface() noexcept : header_data{} { reset(); }
 
-bitmap::bitmap(const std::string& path) : bitmap()
+screen_surface::screen_surface(const std::string& path) : screen_surface()
 {
   if (!path.empty())
     load_from(path);
 }
 
-bitmap::bitmap(const std::uint16_t x, const std::uint16_t y) : bitmap() { resize(x, y); }
+screen_surface::screen_surface(const std::uint16_t x, const std::uint16_t y) : screen_surface() { resize(x, y); }
 
-auto bitmap::compare(const bitmap& bmp, const std::function<bool(const rtc::color_rgb&, const rtc::color_rgb&)>& cmp)
+auto screen_surface::compare(const screen_surface& bmp, const std::function<bool(const rtc::color_rgb&, const rtc::color_rgb&)>& cmp)
     -> std::optional<bool>
 {
   if (!(width() == bmp.width() && height() == bmp.height()))
     return std::nullopt;
 
-  rtc::bitmap result{static_cast<std::uint16_t>(width()), static_cast<std::uint16_t>(height())};
+  rtc::screen_surface result{static_cast<std::uint16_t>(width()), static_cast<std::uint16_t>(height())};
 
   for (int i{}; i < width(); ++i)
   {
@@ -39,12 +39,12 @@ auto bitmap::compare(const bitmap& bmp, const std::function<bool(const rtc::colo
   return true;
 }
 
-void bitmap::load_from(const std::string& path)
+void screen_surface::load_from(const std::string& path)
 {
   std::ifstream out_file(path.c_str(), std::ios::binary);
 
   if (!out_file.is_open() || !out_file.good())
-    throw std::runtime_error{"bitmap::load: file is not open"};
+    throw std::runtime_error{"screen_surface::load: file is not open"};
 
   out_file.read(reinterpret_cast<char*>(&header_data.bfType), sizeof(header_data.bfType));
   out_file.read(reinterpret_cast<char*>(&header_data.bfSize), sizeof(header_data.bfSize));
@@ -85,15 +85,15 @@ void bitmap::load_from(const std::string& path)
   }
 }
 
-void bitmap::save(const std::string& path) const
+void screen_surface::save(const std::string& path) const
 {
   if (base::empty())
-    throw std::runtime_error("bitmap is empty");
+    throw std::runtime_error("screen_surface is empty");
 
   std::ofstream out_file(path.c_str(), std::ios::binary);
 
   if (!out_file.is_open() || !out_file.good())
-    throw std::runtime_error("bitmap::save: file is not open");
+    throw std::runtime_error("screen_surface::save: file is not open");
 
   out_file.write(reinterpret_cast<const char*>(&header_data.bfType), sizeof(header_data.bfType));
   out_file.write(reinterpret_cast<const char*>(&header_data.bfSize), sizeof(header_data.bfSize));
@@ -133,16 +133,16 @@ void bitmap::save(const std::string& path) const
   }
 }
 
-auto bitmap::width() const noexcept -> std::size_t { return header_data.biWidth; }
+auto screen_surface::width() const noexcept -> std::size_t { return header_data.biWidth; }
 
-auto bitmap::height() const noexcept -> std::size_t { return header_data.biHeight; }
+auto screen_surface::height() const noexcept -> std::size_t { return header_data.biHeight; }
 
-auto bitmap::assign(const std::uint16_t x, const std::uint16_t y, const color_rgb& color) noexcept -> bool
+auto screen_surface::assign(const std::uint16_t x, const std::uint16_t y, const color_rgb& color) noexcept -> bool
 {
   return assign({x, y, color});
 }
 
-auto bitmap::assign(const rtc::pixel& p) noexcept -> bool
+auto screen_surface::assign(const rtc::pixel& p) noexcept -> bool
 {
   if (in_range(p.x, p.y))
     operator()(p.x, p.y) = p.color;
@@ -150,7 +150,7 @@ auto bitmap::assign(const rtc::pixel& p) noexcept -> bool
   return in_range(p.x, p.y);
 }
 
-auto bitmap::resize(const std::uint16_t width, const std::uint16_t height) noexcept -> bitmap&
+auto screen_surface::resize(const std::uint16_t width, const std::uint16_t height) noexcept -> screen_surface&
 {
   base old{std::move(*this)};
   auto old_header = header_data;
@@ -178,9 +178,9 @@ auto bitmap::resize(const std::uint16_t width, const std::uint16_t height) noexc
   return *this;
 }
 
-auto bitmap::pixel_amount() const noexcept -> std::size_t { return size(); }
+auto screen_surface::pixel_amount() const noexcept -> std::size_t { return size(); }
 
-auto bitmap::operator()(const std::uint16_t x, const std::uint16_t y) -> color_rgb&
+auto screen_surface::operator()(const std::uint16_t x, const std::uint16_t y) -> color_rgb&
 {
   assert(in_range(x, y));
 #ifndef NDEBUG
@@ -190,7 +190,7 @@ auto bitmap::operator()(const std::uint16_t x, const std::uint16_t y) -> color_r
 #endif
 }
 
-auto bitmap::operator()(const std::uint16_t x, const std::uint16_t y) const -> const color_rgb&
+auto screen_surface::operator()(const std::uint16_t x, const std::uint16_t y) const -> const color_rgb&
 {
   assert(in_range(x, y));
 #ifndef NDEBUG
@@ -200,21 +200,21 @@ auto bitmap::operator()(const std::uint16_t x, const std::uint16_t y) const -> c
 #endif
 }
 
-auto bitmap::clear(const rtc::color_rgb& color) noexcept -> bitmap&
+auto screen_surface::clear(const rtc::color_rgb& color) noexcept -> screen_surface&
 {
   std::for_each(begin(), end(), [&](auto& c) { c.color = color; });
   return *this;
 }
 
-auto bitmap::revert() noexcept -> bitmap&
+auto screen_surface::revert() noexcept -> screen_surface&
 {
   std::for_each(begin(), end(), [](auto& c) { c.color = c.color.revert(); });
   return *this;
 }
 
-auto bitmap::operator!() const -> bitmap { return bitmap(*this).revert(); }
+auto screen_surface::operator!() const -> screen_surface { return screen_surface(*this).revert(); }
 
-auto bitmap::insert(const std::uint16_t x, const std::uint16_t y, const bitmap& bmp) -> bitmap&
+auto screen_surface::insert(const std::uint16_t x, const std::uint16_t y, const screen_surface& bmp) -> screen_surface&
 {
   if (empty())
     resize(x + bmp.width(), y + bmp.height());
@@ -229,7 +229,7 @@ auto bitmap::insert(const std::uint16_t x, const std::uint16_t y, const bitmap& 
   return *this;
 }
 
-void bitmap::reset() noexcept
+void screen_surface::reset() noexcept
 {
   const std::uint8_t align = (4 - ((header_data.biWidth * 3) % 4)) % 4;
 
@@ -245,15 +245,15 @@ void bitmap::reset() noexcept
   header_data.biYPelsPerMeter = 2834;
 }
 
-auto bitmap::trim(const std::uint16_t x,
+auto screen_surface::trim(const std::uint16_t x,
                   const std::uint16_t y,
                   const std::uint16_t width,
-                  const std::uint16_t height) const -> bitmap
+                  const std::uint16_t height) const -> screen_surface
 {
   if (empty())
-    return bitmap{};
+    return screen_surface{};
 
-  bitmap bmp{width, height};
+  screen_surface bmp{width, height};
 
   for (pixel& p : bmp)
   {
@@ -265,34 +265,34 @@ auto bitmap::trim(const std::uint16_t x,
   return bmp;
 }
 
-auto bitmap::in_range(const std::uint16_t x, const std::uint16_t y) const noexcept -> bool
+auto screen_surface::in_range(const std::uint16_t x, const std::uint16_t y) const noexcept -> bool
 {
   return (x < width()) && (y < height());
 }
 
-auto bitmap::at(const std::uint16_t x, const std::uint16_t y) -> color_rgb&
+auto screen_surface::at(const std::uint16_t x, const std::uint16_t y) -> color_rgb&
 {
   if (in_range(x, y))
     return operator()(x, y);
 
-  throw std::out_of_range{"bitmap::at -> in_range false"};
+  throw std::out_of_range{"screen_surface::at -> in_range false"};
 }
 
-auto bitmap::at(const std::uint16_t x, const std::uint16_t y) const -> const color_rgb&
+auto screen_surface::at(const std::uint16_t x, const std::uint16_t y) const -> const color_rgb&
 {
   if (in_range(x, y))
     return operator()(x, y);
 
-  throw std::out_of_range("bitmap::at const -> in_range false");
+  throw std::out_of_range("screen_surface::at const -> in_range false");
 }
 
-auto bitmap::swap(bitmap& bmp) noexcept(noexcept(std::declval<base>().swap(std::declval<base&>()))) -> bitmap&
+auto screen_surface::swap(screen_surface& bmp) noexcept(noexcept(std::declval<base>().swap(std::declval<base&>()))) -> screen_surface&
 {
   base::swap(bmp);
   return *this;
 }
 
-auto bitmap::draw(const std::function<color_rgb(std::uint16_t, std::uint16_t)>& fn) noexcept -> bitmap&
+auto screen_surface::draw(const std::function<color_rgb(std::uint16_t, std::uint16_t)>& fn) noexcept -> screen_surface&
 {
   for (auto i{0U}; i < width(); ++i)
   {

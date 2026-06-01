@@ -6,7 +6,7 @@
 
 namespace rtc_gui
 {
-auto bitmap_to_image(const rtc::bitmap& bitmap) -> QImage
+auto bitmap_to_image(const rtc::screen_surface& bitmap) -> QImage
 {
   QImage image(static_cast<int>(bitmap.width()), static_cast<int>(bitmap.height()), QImage::Format_RGB32);
 

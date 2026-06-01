@@ -23,8 +23,8 @@ struct backward_al
 
   explicit backward_al(std::shared_ptr<const rtc::scene_model> s) : scene{std::move(s)}, rt_s{scene} {}
 
-  auto prework(rtc::bitmap&) {}
-  auto postwork(rtc::bitmap&) {}
+  auto prework(rtc::screen_surface&) {}
+  auto postwork(rtc::screen_surface&) {}
 
   template <std::size_t depth = 10, typename rt_serv>
   [[nodiscard]] auto make_color(const rtc::math_ray& ray, const rtc::color& background, rt_serv& rt) noexcept

@@ -25,7 +25,7 @@ class render_engine
   auto operator=(render_engine&&) noexcept -> render_engine& = default;
   auto operator=(const render_engine&) -> render_engine& = delete;
 
-  rtc_hot auto bitmap() -> rtc::bitmap;
+  rtc_hot auto bitmap() -> rtc::screen_surface;
   ~render_engine() = default;
 
  private:
@@ -69,13 +69,13 @@ auto render_engine<rt_algorithm>::make_tiles(const std::uint16_t width,
 }
 
 template <typename rt_algorithm>
-auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
+auto render_engine<rt_algorithm>::bitmap() -> rtc::screen_surface
 {
   const auto& res = scene->optical_system.screen.resolution;
   const auto width = static_cast<std::uint16_t>(res.x);
   const auto height = static_cast<std::uint16_t>(res.y);
 
-  rtc::bitmap bmp(width, height);
+  rtc::screen_surface bmp(width, height);
 
   rt_algorithm rt_alg{scene};
   {

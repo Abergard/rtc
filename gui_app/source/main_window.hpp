@@ -32,6 +32,6 @@ class MainWindow final : public QMainWindow
   QString loadedScenePath_{};
   bool loadedSceneIsBrs_{false};
   QTimer renderPoll_{this};
-  std::future<rtc::bitmap> renderFuture_{};
+  std::future<rtc::screen_surface> renderFuture_{};
 };
 }  // namespace rtc_gui
