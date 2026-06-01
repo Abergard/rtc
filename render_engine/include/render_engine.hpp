@@ -1,14 +1,13 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "backward_al.hpp"
 #include "bitmap.hpp"
 #include "distributed_ray_tracing.hpp"
-#include "intersection.hpp"
-#include "math_ray.hpp"
-#include "optical_camera_plane.hpp"
 #include "rt_service.hpp"
 #include "scene_model.hpp"
 #include "scoped_timer.hpp"
@@ -33,32 +32,12 @@ class render_engine
   using rt_service = ::rtc::rt_service<typename rt_algorithm::rt_paramters>;
 
   static constexpr std::uint16_t tile_size{rt_service::default_tile_size};
-
-  struct sync_trace_result
-  {
-    rtc::intersection intersection;
-
-    [[nodiscard]] auto get() const noexcept -> rtc::intersection { return intersection; }
-  };
-
-  struct sync_rt_adapter
-  {
-    const rt_service& rt;
-
-    [[nodiscard]] rtc_hot auto trace_ray(const rtc::math_ray& ray) const -> sync_trace_result
-    {
-      return {rt.trace_ray_sync(ray)};
-    }
-  };
+  static constexpr std::uint16_t sample_number{1};
 
   rt_service rt;
   const std::shared_ptr<const rtc::scene_model> scene;
 
-  static auto make_rgb(const rtc::color& c) -> rtc::color_rgb
-  {
-    using type = rtc::color_rgb::value_type;
-    return {c.red<type>(), c.green<type>(), c.blue<type>()};
-  }
+  [[nodiscard]] static auto make_tiles(std::uint16_t width, std::uint16_t height) -> std::vector<rtc::rt_tile>;
 };
 
 template <typename T>
@@ -67,12 +46,36 @@ render_engine<T>::render_engine(std::shared_ptr<const rtc::scene_model> s) : rt{
 }
 
 template <typename rt_algorithm>
+auto render_engine<rt_algorithm>::make_tiles(const std::uint16_t width,
+                                             const std::uint16_t height) -> std::vector<rtc::rt_tile>
+{
+  std::vector<rtc::rt_tile> tiles;
+  tiles.reserve(((width + tile_size - 1) / tile_size) * ((height + tile_size - 1) / tile_size));
+
+  for (std::uint16_t y{}; y < height; y = static_cast<std::uint16_t>(y + tile_size))
+  {
+    for (std::uint16_t x{}; x < width; x = static_cast<std::uint16_t>(x + tile_size))
+    {
+      tiles.push_back({
+          x,
+          y,
+          static_cast<std::uint16_t>(std::min<std::uint32_t>(width, x + tile_size)),
+          static_cast<std::uint16_t>(std::min<std::uint32_t>(height, y + tile_size)),
+      });
+    }
+  }
+
+  return tiles;
+}
+
+template <typename rt_algorithm>
 auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
 {
   const auto& res = scene->optical_system.screen.resolution;
+  const auto width = static_cast<std::uint16_t>(res.x);
+  const auto height = static_cast<std::uint16_t>(res.y);
 
-  rtc::bitmap bmp(res.x, res.y);
-  const rtc::optical_camera_plane op{scene->optical_system};
+  rtc::bitmap bmp(width, height);
 
   rt_algorithm rt_alg{scene};
   {
@@ -80,25 +83,14 @@ auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
     rt_alg.prework(bmp);
   }
 
-  rt.for_each_tile(static_cast<std::uint16_t>(res.x),
-                   static_cast<std::uint16_t>(res.y),
-                   tile_size,
-                   [&](const rtc::rt_tile& tile, auto& rt_backend) {
-                     sync_rt_adapter sync_rt{rt_backend};
-                     for (auto y = tile.y_begin; y < tile.y_end; ++y)
-                     {
-                       for (auto x = tile.x_begin; x < tile.x_end; ++x)
-                       {
-                         RTC_TRACE_SCOPE_CAT("pixel generation", "render_engine::tile");
-                         const auto primary = op.emit_ray(x, y);
-                         const auto c = rt_alg.make_color(primary, rtc::black, sync_rt);
+  const auto tiles = make_tiles(width, height);
+  for (std::uint16_t sample{}; sample < sample_number; ++sample)
+  {
+    for (const auto& tile : tiles)
+      rt.execute(tile, bmp, rt_alg);
 
-                         DEBUG << "pixel[" << x << "," << y << "]"
-                               << "ray " << primary.direction() << " color: " << c;
-                         bmp.assign(x, y, make_rgb(c));
-                       }
-                     }
-                   });
+    rt.finish();
+  }
 
   rt_alg.postwork(bmp);
 

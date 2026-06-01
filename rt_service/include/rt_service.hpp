@@ -1,9 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
-#include <exception>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -12,9 +10,12 @@
 #include <utility>
 #include <vector>
 
+#include "bitmap.hpp"
+#include "color.hpp"
 #include "intersection.hpp"
 #include "kdtree_rt.hpp"
 #include "math_ray.hpp"
+#include "optical_camera_plane.hpp"
 #include "scene_model.hpp"
 #include "utility.hpp"
 
@@ -39,7 +40,7 @@ class rt_service
   using trace_result = std::future<rtc::intersection>;
 
   explicit rt_service(std::shared_ptr<const rtc::scene_model>);
-  ~rt_service() = default;
+  ~rt_service() noexcept;
 
   rt_service(rt_service&&) noexcept = default;
   rt_service(const rt_service&) = delete;
@@ -52,28 +53,62 @@ class rt_service
   template <typename InputIt, typename OutputIt>
   auto trace_batch(InputIt first, InputIt last, OutputIt out) const -> void;
 
-  template <typename Job>
-  auto for_each_tile(std::uint16_t width,
-                     std::uint16_t height,
-                     std::uint16_t tile_size,
-                     Job&& job) const -> void;
+  template <typename RtAlgorithm>
+  auto execute(const rtc::rt_tile& tile, rtc::bitmap& bmp, RtAlgorithm& rt_alg) const -> void;
+  auto finish() const -> void;
 
   auto thread_number() const noexcept -> std::uint32_t { return worker_thread_number(); }
 
  private:
-  std::unique_ptr<const ray_tracer> rt_search;
+  struct scheduler_state
+  {
+    mutable std::mutex mutex;
+    std::vector<std::future<void>> pending_jobs;
+  };
 
+  struct sync_trace_result
+  {
+    rtc::intersection intersection;
+
+    [[nodiscard]] auto get() const noexcept -> rtc::intersection { return intersection; }
+  };
+
+  struct sync_rt_adapter
+  {
+    const rt_service& rt;
+
+    [[nodiscard]] rtc_hot auto trace_ray(const rtc::math_ray& ray) const -> sync_trace_result
+    {
+      return {rt.trace_ray_sync(ray)};
+    }
+  };
+
+  const std::shared_ptr<const rtc::scene_model> scene;
+  std::unique_ptr<const ray_tracer> rt_search;
+  std::shared_ptr<scheduler_state> scheduler{std::make_shared<scheduler_state>()};
+
+  template <typename RtAlgorithm>
+  auto render_tile(const rtc::rt_tile& tile, rtc::bitmap& bmp, RtAlgorithm& rt_alg) const -> void;
+  [[nodiscard]] static auto make_rgb(const rtc::color& c) -> rtc::color_rgb;
   static auto ready_trace_result(rtc::intersection intersection) -> trace_result;
+  auto wait_next_job() const -> bool;
+  auto finish_noexcept() const noexcept -> void;
   static auto worker_thread_number() noexcept -> std::uint32_t;
 };
 
 template <typename T>
-rt_service<T>::rt_service(std::shared_ptr<const rtc::scene_model> sc)
+rt_service<T>::rt_service(std::shared_ptr<const rtc::scene_model> sc) : scene{std::move(sc)}
 {
-  if (rtc_unlikely(!sc))
+  if (rtc_unlikely(!scene))
     throw std::runtime_error{"Pointer to scene_model is null."};
 
-  rt_search = std::make_unique<ray_tracer>(std::move(sc));
+  rt_search = std::make_unique<ray_tracer>(scene);
+}
+
+template <typename T>
+rt_service<T>::~rt_service() noexcept
+{
+  finish_noexcept();
 }
 
 template <typename T>
@@ -107,64 +142,97 @@ auto rt_service<T>::trace_batch(InputIt first, InputIt last, OutputIt out) const
 }
 
 template <typename T>
-template <typename Job>
-auto rt_service<T>::for_each_tile(const std::uint16_t width,
-                                  const std::uint16_t height,
-                                  const std::uint16_t tile_size,
-                                  Job&& job) const -> void
+template <typename RtAlgorithm>
+auto rt_service<T>::execute(const rtc::rt_tile& tile, rtc::bitmap& bmp, RtAlgorithm& rt_alg) const -> void
 {
-  const auto effective_tile = std::max<std::uint16_t>(1, tile_size);
-  std::vector<rt_tile> tiles;
-  tiles.reserve(((width + effective_tile - 1) / effective_tile) * ((height + effective_tile - 1) / effective_tile));
+  if (rtc_unlikely(!scheduler))
+    throw std::runtime_error{"rt_service is not able to schedule, probably it was moved from"};
 
-  for (std::uint16_t y{}; y < height; y = static_cast<std::uint16_t>(y + effective_tile))
+  const auto workers = std::max<std::size_t>(1, worker_thread_number());
+  while (true)
   {
-    for (std::uint16_t x{}; x < width; x = static_cast<std::uint16_t>(x + effective_tile))
     {
-      tiles.push_back({
-          x,
-          y,
-          static_cast<std::uint16_t>(std::min<std::uint32_t>(width, x + effective_tile)),
-          static_cast<std::uint16_t>(std::min<std::uint32_t>(height, y + effective_tile)),
-      });
+      const std::lock_guard<std::mutex> lock{scheduler->mutex};
+      if (scheduler->pending_jobs.size() < workers)
+        break;
+    }
+
+    wait_next_job();
+  }
+
+  auto job = std::async(std::launch::async, [this, tile, &bmp, &rt_alg] { render_tile(tile, bmp, rt_alg); });
+
+  const std::lock_guard<std::mutex> lock{scheduler->mutex};
+  scheduler->pending_jobs.emplace_back(std::move(job));
+}
+
+template <typename T>
+auto rt_service<T>::finish() const -> void
+{
+  while (wait_next_job())
+  {
+  }
+}
+
+template <typename T>
+template <typename RtAlgorithm>
+auto rt_service<T>::render_tile(const rtc::rt_tile& tile, rtc::bitmap& bmp, RtAlgorithm& rt_alg) const -> void
+{
+  const rtc::optical_camera_plane op{scene->optical_system};
+  sync_rt_adapter sync_rt{*this};
+
+  for (auto y = tile.y_begin; y < tile.y_end; ++y)
+  {
+    for (auto x = tile.x_begin; x < tile.x_end; ++x)
+    {
+      RTC_TRACE_SCOPE_CAT("pixel generation", "rt_service::execute");
+      const auto primary = op.emit_ray(x, y);
+      const auto c = rt_alg.make_color(primary, rtc::black, sync_rt);
+
+      DEBUG << "pixel[" << x << "," << y << "]"
+            << "ray " << primary.direction() << " color: " << c;
+      bmp.assign(x, y, make_rgb(c));
     }
   }
+}
 
-  const auto workers = std::min<std::size_t>(std::max<std::size_t>(1, worker_thread_number()), tiles.size());
-  std::atomic<std::size_t> next_tile{};
-  std::exception_ptr worker_exception;
-  std::mutex worker_exception_mutex;
-  std::vector<std::thread> threads;
-  threads.reserve(workers);
+template <typename T>
+auto rt_service<T>::wait_next_job() const -> bool
+{
+  if (!scheduler)
+    return false;
 
-  for (std::size_t worker{}; worker < workers; ++worker)
+  std::future<void> job;
   {
-    threads.emplace_back([&] {
-      try
-      {
-        while (true)
-        {
-          const auto index = next_tile.fetch_add(1, std::memory_order_relaxed);
-          if (index >= tiles.size())
-            break;
+    const std::lock_guard<std::mutex> lock{scheduler->mutex};
+    if (scheduler->pending_jobs.empty())
+      return false;
 
-          job(tiles[index], *this);
-        }
-      }
-      catch (...)
-      {
-        const std::lock_guard<std::mutex> lock{worker_exception_mutex};
-        if (!worker_exception)
-          worker_exception = std::current_exception();
-      }
-    });
+    job = std::move(scheduler->pending_jobs.front());
+    scheduler->pending_jobs.erase(scheduler->pending_jobs.begin());
   }
 
-  for (auto& thread : threads)
-    thread.join();
+  job.get();
+  return true;
+}
 
-  if (worker_exception)
-    std::rethrow_exception(worker_exception);
+template <typename T>
+auto rt_service<T>::finish_noexcept() const noexcept -> void
+{
+  try
+  {
+    finish();
+  }
+  catch (...)
+  {
+  }
+}
+
+template <typename T>
+auto rt_service<T>::make_rgb(const rtc::color& c) -> rtc::color_rgb
+{
+  using type = rtc::color_rgb::value_type;
+  return {c.red<type>(), c.green<type>(), c.blue<type>()};
 }
 
 template <typename T>
