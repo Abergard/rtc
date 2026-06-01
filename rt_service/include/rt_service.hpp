@@ -54,6 +54,7 @@ struct rt_render_progress
   std::atomic<std::uint64_t> completed_tiles{};
   std::atomic<std::uint64_t> processed_pixels{};
   std::atomic<std::uint64_t> tile_time_us{};
+  std::atomic<bool> cancelled{};
 
   auto reset(const std::uint64_t total) noexcept -> void
   {
@@ -62,7 +63,11 @@ struct rt_render_progress
     completed_tiles.store(0, std::memory_order_relaxed);
     processed_pixels.store(0, std::memory_order_relaxed);
     tile_time_us.store(0, std::memory_order_relaxed);
+    cancelled.store(false, std::memory_order_relaxed);
   }
+
+  auto request_cancel() noexcept -> void { cancelled.store(true, std::memory_order_release); }
+  [[nodiscard]] auto is_cancelled() const noexcept -> bool { return cancelled.load(std::memory_order_acquire); }
 };
 
 template <typename _rt = ::rtc::kdtree_rt>
@@ -162,6 +167,11 @@ class rt_service
 
   template <typename RtAlgorithm>
   auto render_tile(const rtc::rt_tile& tile, rtc::screen_surface& bmp, RtAlgorithm& rt_alg) const -> void;
+  template <typename RtAlgorithm>
+  auto render_tile(const rtc::rt_tile& tile,
+                   rtc::screen_surface& bmp,
+                   RtAlgorithm& rt_alg,
+                   const rtc::rt_render_progress* progress) const -> void;
   [[nodiscard]] static auto make_rgb(const rtc::color& c) -> rtc::color_rgb;
   static auto ready_trace_result(rtc::intersection intersection) -> trace_result;
   auto finish_noexcept() const noexcept -> void;
@@ -377,8 +387,11 @@ auto rt_service<T>::execute(const rtc::rt_tile& tile,
     ++progress->submitted_tiles;
 
   scheduler->submit([this, tile, &bmp, &rt_alg, progress] {
+    if (progress && progress->is_cancelled())
+      return;
+
     const auto tile_start = now();
-    render_tile(tile, bmp, rt_alg);
+    render_tile(tile, bmp, rt_alg, progress);
     if (progress)
     {
       const auto tile_pixels = static_cast<std::uint64_t>(tile.x_end - tile.x_begin) *
@@ -427,6 +440,16 @@ template <typename T>
 template <typename RtAlgorithm>
 auto rt_service<T>::render_tile(const rtc::rt_tile& tile, rtc::screen_surface& bmp, RtAlgorithm& rt_alg) const -> void
 {
+  render_tile(tile, bmp, rt_alg, nullptr);
+}
+
+template <typename T>
+template <typename RtAlgorithm>
+auto rt_service<T>::render_tile(const rtc::rt_tile& tile,
+                                rtc::screen_surface& bmp,
+                                RtAlgorithm& rt_alg,
+                                const rtc::rt_render_progress* progress) const -> void
+{
   const auto tile_start = now();
   const rtc::optical_camera_plane op{scene->optical_system};
   sync_rt_adapter sync_rt{*this};
@@ -434,8 +457,14 @@ auto rt_service<T>::render_tile(const rtc::rt_tile& tile, rtc::screen_surface& b
 
   for (auto y = tile.y_begin; y < tile.y_end; ++y)
   {
+    if (progress && progress->is_cancelled())
+      break;
+
     for (auto x = tile.x_begin; x < tile.x_end; ++x)
     {
+      if (progress && progress->is_cancelled())
+        break;
+
       RTC_TRACE_SCOPE_CAT("pixel generation", "rt_service::execute");
       const auto primary = op.emit_ray(x, y);
       const auto c = rt_alg.make_color(primary, rtc::black, sync_rt);

@@ -20,6 +20,7 @@ class MainWindow final : public QMainWindow
   explicit MainWindow(QWidget* parent = nullptr);
 
  private:
+  void closeEvent(QCloseEvent* event) override;
   void loadScene();
   void startRender();
   void pollRender();

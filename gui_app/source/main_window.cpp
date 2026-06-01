@@ -2,6 +2,7 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -149,6 +150,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   connect(&renderPoll_, &QTimer::timeout, this, [this] { pollRender(); });
 
   resize(1100, 760);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+  if (renderProgress_)
+    renderProgress_->request_cancel();
+
+  renderPoll_.stop();
+  QMainWindow::closeEvent(event);
 }
 
 void MainWindow::loadScene()
