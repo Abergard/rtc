@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
+#include <QProgressBar>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QToolBar>
@@ -17,6 +18,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -135,6 +137,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   connect(wireframe, &QCheckBox::toggled, view_, &SceneView::setWireframe);
   connect(normals, &QCheckBox::toggled, view_, &SceneView::setShowNormals);
   connect(backfaceCulling, &QCheckBox::toggled, view_, &SceneView::setBackfaceCulling);
+
+  renderProgressBar_ = new QProgressBar(this);
+  renderProgressBar_->setRange(0, 100);
+  renderProgressBar_->setValue(0);
+  renderProgressBar_->setTextVisible(true);
+  renderProgressBar_->setVisible(false);
+  statusBar()->addPermanentWidget(renderProgressBar_, 1);
 
   renderPoll_.setInterval(100);
   connect(&renderPoll_, &QTimer::timeout, this, [this] { pollRender(); });
@@ -324,8 +333,14 @@ void MainWindow::startRender()
                                .arg(renderSize.width())
                                .arg(renderSize.height()));
 
-  renderFuture_ = std::async(std::launch::async, [renderScene] {
-    rtc::render_engine<> engine{renderScene};
+  renderProgress_ = std::make_shared<rtc::rt_render_progress>();
+  renderProgress_->reset(0);
+  renderProgressBar_->setRange(0, 100);
+  renderProgressBar_->setValue(0);
+  renderProgressBar_->setVisible(true);
+
+  renderFuture_ = std::async(std::launch::async, [renderScene, progress = renderProgress_] {
+    rtc::render_engine<> engine{renderScene, progress};
     return engine.bitmap();
   });
   renderPoll_.start();
@@ -336,7 +351,34 @@ void MainWindow::pollRender()
   if (!renderFuture_.valid())
   {
     renderPoll_.stop();
+    renderProgressBar_->setVisible(false);
     return;
+  }
+
+  if (renderProgress_)
+  {
+    const auto total = renderProgress_->total_tiles.load(std::memory_order_relaxed);
+    const auto completed = renderProgress_->completed_tiles.load(std::memory_order_relaxed);
+    const auto pixels = renderProgress_->processed_pixels.load(std::memory_order_relaxed);
+    const auto tileTimeUs = renderProgress_->tile_time_us.load(std::memory_order_relaxed);
+
+    if (total > 0)
+    {
+      const auto percent = static_cast<int>((100 * completed) / total);
+      const auto avgTileMs = completed > 0 ? static_cast<double>(tileTimeUs) / (1000.0 * completed) : 0.0;
+      const auto avgPixelUs = pixels > 0 ? static_cast<double>(tileTimeUs) / pixels : 0.0;
+      renderProgressBar_->setValue(std::clamp(percent, 0, 100));
+      renderProgressBar_->setFormat(QString("%1 / %2 tiles, %3 ms/tile, %4 us/pixel")
+                                        .arg(completed)
+                                        .arg(total)
+                                        .arg(avgTileMs, 0, 'f', 2)
+                                        .arg(avgPixelUs, 0, 'f', 2));
+    }
+    else
+    {
+      renderProgressBar_->setValue(0);
+      renderProgressBar_->setFormat("Preparing render...");
+    }
   }
 
   if (renderFuture_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
@@ -346,6 +388,8 @@ void MainWindow::pollRender()
   try
   {
     auto bitmap = renderFuture_.get();
+    renderProgressBar_->setValue(100);
+    renderProgressBar_->setVisible(false);
     auto image = bitmap_to_image(bitmap);
     const auto nonBlack = non_black_pixels(image);
     view_->showRenderedImage(std::move(image));
@@ -356,8 +400,11 @@ void MainWindow::pollRender()
   }
   catch (const std::exception& e)
   {
+    renderProgressBar_->setVisible(false);
     statusBar()->showMessage(QString("Render failed: %1").arg(e.what()));
   }
+
+  renderProgress_.reset();
 }
 
 void MainWindow::flipSelectedTriangle()

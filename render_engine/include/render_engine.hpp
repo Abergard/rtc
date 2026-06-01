@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "backward_al.hpp"
@@ -18,7 +19,7 @@ template <typename rt_algorithm = backward_al<::rtc::kdtree_rt, distributed_ray_
 class render_engine
 {
  public:
-  explicit render_engine(std::shared_ptr<const rtc::scene_model>);
+  explicit render_engine(std::shared_ptr<const rtc::scene_model>, std::shared_ptr<rtc::rt_render_progress> = {});
 
   render_engine(render_engine&&) noexcept = default;
   render_engine(const render_engine&) = delete;
@@ -36,12 +37,14 @@ class render_engine
 
   rt_service rt;
   const std::shared_ptr<const rtc::scene_model> scene;
+  std::shared_ptr<rtc::rt_render_progress> progress;
 
   [[nodiscard]] static auto make_tiles(std::uint16_t width, std::uint16_t height) -> std::vector<rtc::rt_tile>;
 };
 
 template <typename T>
-render_engine<T>::render_engine(std::shared_ptr<const rtc::scene_model> s) : rt{s}, scene{std::move(s)}
+render_engine<T>::render_engine(std::shared_ptr<const rtc::scene_model> s, std::shared_ptr<rtc::rt_render_progress> p)
+    : rt{s}, scene{std::move(s)}, progress{std::move(p)}
 {
 }
 
@@ -84,10 +87,13 @@ auto render_engine<rt_algorithm>::bitmap() -> rtc::screen_surface
   }
 
   const auto tiles = make_tiles(width, height);
+  if (progress)
+    progress->reset(static_cast<std::uint64_t>(tiles.size()) * sample_number);
+
   for (std::uint16_t sample{}; sample < sample_number; ++sample)
   {
     for (const auto& tile : tiles)
-      rt.execute(tile, bmp, rt_alg);
+      rt.execute(tile, bmp, rt_alg, progress.get());
 
     rt.finish();
   }

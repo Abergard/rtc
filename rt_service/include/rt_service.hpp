@@ -47,6 +47,24 @@ struct rt_service_stats
   std::uint64_t trace_time_us{};
 };
 
+struct rt_render_progress
+{
+  std::atomic<std::uint64_t> total_tiles{};
+  std::atomic<std::uint64_t> submitted_tiles{};
+  std::atomic<std::uint64_t> completed_tiles{};
+  std::atomic<std::uint64_t> processed_pixels{};
+  std::atomic<std::uint64_t> tile_time_us{};
+
+  auto reset(const std::uint64_t total) noexcept -> void
+  {
+    total_tiles.store(total, std::memory_order_relaxed);
+    submitted_tiles.store(0, std::memory_order_relaxed);
+    completed_tiles.store(0, std::memory_order_relaxed);
+    processed_pixels.store(0, std::memory_order_relaxed);
+    tile_time_us.store(0, std::memory_order_relaxed);
+  }
+};
+
 template <typename _rt = ::rtc::kdtree_rt>
 class rt_service
 {
@@ -72,7 +90,10 @@ class rt_service
   auto trace_batch(InputIt first, InputIt last, OutputIt out) const -> void;
 
   template <typename RtAlgorithm>
-  auto execute(const rtc::rt_tile& tile, rtc::screen_surface& bmp, RtAlgorithm& rt_alg) const -> void;
+  auto execute(const rtc::rt_tile& tile,
+               rtc::screen_surface& bmp,
+               RtAlgorithm& rt_alg,
+               rtc::rt_render_progress* progress = nullptr) const -> void;
   auto finish() const -> void;
   [[nodiscard]] auto stats() const noexcept -> rt_service_stats;
 
@@ -345,12 +366,29 @@ auto rt_service<T>::trace_batch(InputIt first, InputIt last, OutputIt out) const
 
 template <typename T>
 template <typename RtAlgorithm>
-auto rt_service<T>::execute(const rtc::rt_tile& tile, rtc::screen_surface& bmp, RtAlgorithm& rt_alg) const -> void
+auto rt_service<T>::execute(const rtc::rt_tile& tile,
+                            rtc::screen_surface& bmp,
+                            RtAlgorithm& rt_alg,
+                            rtc::rt_render_progress* progress) const -> void
 {
   if (rtc_unlikely(!scheduler))
     throw std::runtime_error{"rt_service is not able to schedule, probably it was moved from"};
 
-  scheduler->submit([this, tile, &bmp, &rt_alg] { render_tile(tile, bmp, rt_alg); });
+  if (progress)
+    ++progress->submitted_tiles;
+
+  scheduler->submit([this, tile, &bmp, &rt_alg, progress] {
+    const auto tile_start = now();
+    render_tile(tile, bmp, rt_alg);
+    if (progress)
+    {
+      const auto tile_pixels = static_cast<std::uint64_t>(tile.x_end - tile.x_begin) *
+                               static_cast<std::uint64_t>(tile.y_end - tile.y_begin);
+      progress->processed_pixels += tile_pixels;
+      progress->tile_time_us += to_us(now() - tile_start);
+      ++progress->completed_tiles;
+    }
+  });
 }
 
 template <typename T>
