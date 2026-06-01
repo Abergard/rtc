@@ -1,14 +1,15 @@
-#include <boost/fiber/algo/round_robin.hpp>
-#include <boost/fiber/fiber.hpp>
-#include <boost/fiber/operations.hpp>
-#include <future>
+#pragma once
+
+#include <cstdint>
 #include <memory>
 
 #include "backward_al.hpp"
 #include "bitmap.hpp"
 #include "distributed_ray_tracing.hpp"
-#include "joinable_rt.hpp"
+#include "intersection.hpp"
+#include "math_ray.hpp"
 #include "optical_camera_plane.hpp"
+#include "rt_service.hpp"
 #include "scene_model.hpp"
 #include "scoped_timer.hpp"
 
@@ -30,68 +31,47 @@ class render_engine
 
  private:
   using rt_service = ::rtc::rt_service<typename rt_algorithm::rt_paramters>;
-  using joinable_rt = rtc::joinable_rt<rt_service>;
 
-  static constexpr std::uint16_t fiber_num{rt_service::queue_capacity};
-  struct : joinable_rt
+  static constexpr std::uint16_t tile_size{rt_service::default_tile_size};
+
+  struct sync_trace_result
   {
-    template <typename>
-    friend class render_engine;
+    rtc::intersection intersection;
 
-   public:
-    using joinable_rt::joinable_rt;
-    [[nodiscard]] rtc_hot rtc_inline auto trace_ray(const rtc::math_ray& r)
+    [[nodiscard]] auto get() const noexcept -> rtc::intersection { return intersection; }
+  };
+
+  struct sync_rt_adapter
+  {
+    const rt_service& rt;
+
+    [[nodiscard]] rtc_hot auto trace_ray(const rtc::math_ray& ray) const -> sync_trace_result
     {
-      auto f = joinable_rt::trace_ray(r);
-
-      if (joinable_rt::size() >= fiber_num)
-      {
-        this->join();
-      }
-
-      boost::this_fiber::yield();
-      return f;
+      return {rt.trace_ray_sync(ray)};
     }
+  };
 
-   private:
-    auto join()
-    {
-      if (!rt_algorithm::rt_paramters::is_thread_safe)
-      {
-        joinable_rt::join();
-      }
-
-      joinable_rt::clear();
-    }
-  } join_rt;
-
+  rt_service rt;
   const std::shared_ptr<const rtc::scene_model> scene;
 
-  auto make_rgb(const rtc::color& c) -> rtc::color_rgb
+  static auto make_rgb(const rtc::color& c) -> rtc::color_rgb
   {
-    // assert(!c.is_normalized());
-
     using type = rtc::color_rgb::value_type;
     return {c.red<type>(), c.green<type>(), c.blue<type>()};
   }
 };
 
 template <typename T>
-render_engine<T>::render_engine(std::shared_ptr<const rtc::scene_model> s) : join_rt{rt_service{s}}, scene{std::move(s)}
+render_engine<T>::render_engine(std::shared_ptr<const rtc::scene_model> s) : rt{s}, scene{std::move(s)}
 {
 }
 
 template <typename rt_algorithm>
 auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
 {
-  using namespace boost::fibers;
   const auto& res = scene->optical_system.screen.resolution;
 
-  use_scheduling_algorithm<algo::round_robin>();
-
-  std::uint32_t pindex{};
   rtc::bitmap bmp(res.x, res.y);
-  std::array<fiber, fiber_num> fibers{};
   const rtc::optical_camera_plane op{scene->optical_system};
 
   rt_algorithm rt_alg{scene};
@@ -100,24 +80,26 @@ auto render_engine<rt_algorithm>::bitmap() -> rtc::bitmap
     rt_alg.prework(bmp);
   }
 
-  auto fiber_fn = [&] {
-    while (rtc_likely(pindex < bmp.pixel_amount()))
-    {
-      RTC_TRACE_SCOPE_CAT("pixel generation", "fiber_fn");
-      auto pixel{bmp.begin() + (pindex++)};
-      auto primary{op.emit_ray(pixel->x, pixel->y)};
+  rt.for_each_tile(static_cast<std::uint16_t>(res.x),
+                   static_cast<std::uint16_t>(res.y),
+                   tile_size,
+                   [&](const rtc::rt_tile& tile, auto& rt_backend) {
+                     sync_rt_adapter sync_rt{rt_backend};
+                     for (auto y = tile.y_begin; y < tile.y_end; ++y)
+                     {
+                       for (auto x = tile.x_begin; x < tile.x_end; ++x)
+                       {
+                         RTC_TRACE_SCOPE_CAT("pixel generation", "render_engine::tile");
+                         const auto primary = op.emit_ray(x, y);
+                         const auto c = rt_alg.make_color(primary, rtc::black, sync_rt);
 
-      auto c = rt_alg.make_color(primary, rtc::black, join_rt);
+                         DEBUG << "pixel[" << x << "," << y << "]"
+                               << "ray " << primary.direction() << " color: " << c;
+                         bmp.assign(x, y, make_rgb(c));
+                       }
+                     }
+                   });
 
-      DEBUG << "pixel[" << pixel->x << "," << pixel->y << "]"
-            << "ray " << primary.direction() << " color: " << c;
-      bmp.assign(pixel->x, pixel->y, make_rgb(c));
-    }
-  };
-
-  std::generate(fibers.begin(), fibers.end(), [&] { return fiber{launch::post, fiber_fn}; });
-
-  std::for_each(fibers.begin(), fibers.end(), [](auto& f) { f.join(); });
   rt_alg.postwork(bmp);
 
   return bmp;
