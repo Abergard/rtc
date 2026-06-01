@@ -1,4 +1,4 @@
-#include "bvh.hpp"
+#include "bvh8.hpp"
 
 #include <algorithm>
 #include <array>
@@ -7,14 +7,14 @@
 #include <numeric>
 #include <optional>
 
-#include "bvh_node.hpp"
+#include "bvh8_node.hpp"
 #include "chrome_trace.hpp"
 
 namespace rtc
 {
 namespace
 {
-constexpr std::size_t leaf_triangle_limit{2};
+constexpr std::size_t leaf_triangle_limit{4};
 constexpr std::size_t bin_count{12};
 
 struct bounds_accumulator
@@ -79,6 +79,16 @@ auto centroid_axis(const rtc::bounding_box& box, const rtc::axis axis) noexcept 
 auto make_bbox_from_bounds(const rtc::math_point& min, const rtc::math_point& max) noexcept -> rtc::bounding_box
 {
   return rtc::bounding_box{min, max};
+}
+
+auto accumulate_bounds(const std::vector<rtc::bounding_box>& primitive_bboxes,
+                       const std::vector<std::uint32_t>& triangles) noexcept -> bounds_accumulator
+{
+  bounds_accumulator bounds{};
+  for (const auto triangle_index : triangles)
+    bounds.extend(primitive_bboxes[triangle_index]);
+
+  return bounds;
 }
 
 auto find_sah_split(const std::vector<rtc::bounding_box>& primitive_bboxes,
@@ -147,11 +157,42 @@ auto find_sah_split(const std::vector<rtc::bounding_box>& primitive_bboxes,
 
   return best;
 }
+
+auto split_group(const std::vector<rtc::bounding_box>& primitive_bboxes,
+                 std::vector<std::uint32_t> triangles,
+                 const rtc::bounding_box& group_bbox) -> std::array<std::vector<std::uint32_t>, 2>
+{
+  std::vector<std::uint32_t> left{}, right{};
+  if (const auto split = find_sah_split(primitive_bboxes, triangles))
+  {
+    const auto middle = std::partition(triangles.begin(), triangles.end(), [&](const auto triangle_index) {
+      return centroid_axis(primitive_bboxes[triangle_index], split->axis) < split->position;
+    });
+
+    left = {triangles.begin(), middle};
+    right = {middle, triangles.end()};
+  }
+
+  if (left.empty() || right.empty())
+  {
+    const auto split_axis = group_bbox.maximum_extent();
+    const auto mid = triangles.begin() + static_cast<std::ptrdiff_t>(triangles.size() / 2);
+
+    std::nth_element(triangles.begin(), mid, triangles.end(), [&](const auto lhs, const auto rhs) {
+      return centroid_axis(primitive_bboxes[lhs], split_axis) < centroid_axis(primitive_bboxes[rhs], split_axis);
+    });
+
+    left = {triangles.begin(), mid};
+    right = {mid, triangles.end()};
+  }
+
+  return {std::move(left), std::move(right)};
+}
 }  // namespace
 
-bvh::bvh(const rtc::scene_model& scene)
+bvh8::bvh8(const rtc::scene_model& scene)
 {
-  RTC_TRACE_SCOPE_CAT("bvh::bvh", "bvh");
+  RTC_TRACE_SCOPE_CAT("bvh8::bvh8", "bvh8");
 
   std::vector<rtc::bounding_box> primitive_bboxes;
   primitive_bboxes.reserve(scene.triangles.size());
@@ -166,18 +207,18 @@ bvh::bvh(const rtc::scene_model& scene)
   root = build_tree(primitive_bboxes, std::move(triangles), max_depth);
 }
 
-auto bvh::cbegin(const rtc::math_ray& ray) const noexcept -> bvh::const_iterator
+auto bvh8::cbegin(const rtc::math_ray& ray) const noexcept -> bvh8::const_iterator
 {
   return root ? const_iterator{ray, root.get()} : const_iterator{};
 }
 
-auto bvh::cend(const rtc::math_ray&) const noexcept -> bvh::const_iterator { return const_iterator{}; }
+auto bvh8::cend(const rtc::math_ray&) const noexcept -> bvh8::const_iterator { return const_iterator{}; }
 
-bvh::~bvh() = default;
-bvh::bvh(bvh&&) noexcept = default;
-auto bvh::operator=(bvh&&) noexcept -> bvh& = default;
+bvh8::~bvh8() = default;
+bvh8::bvh8(bvh8&&) noexcept = default;
+auto bvh8::operator=(bvh8&&) noexcept -> bvh8& = default;
 
-auto bvh::make_triangle_bbox(const rtc::scene_model& scene, const std::uint32_t triangle_index) noexcept
+auto bvh8::make_triangle_bbox(const rtc::scene_model& scene, const std::uint32_t triangle_index) noexcept
     -> rtc::bounding_box
 {
   const auto& triangle = scene.triangles[triangle_index];
@@ -188,8 +229,8 @@ auto bvh::make_triangle_bbox(const rtc::scene_model& scene, const std::uint32_t 
   };
 }
 
-auto bvh::make_node_bbox(const std::vector<rtc::bounding_box>& primitive_bboxes,
-                         const value_type& triangles) noexcept -> rtc::bounding_box
+auto bvh8::make_node_bbox(const std::vector<rtc::bounding_box>& primitive_bboxes,
+                          const value_type& triangles) noexcept -> rtc::bounding_box
 {
   auto min = primitive_bboxes[triangles.front()].min_boundary();
   auto max = primitive_bboxes[triangles.front()].max_boundary();
@@ -207,9 +248,9 @@ auto bvh::make_node_bbox(const std::vector<rtc::bounding_box>& primitive_bboxes,
   return make_bbox_from_bounds(min, max);
 }
 
-auto bvh::build_tree(const std::vector<rtc::bounding_box>& primitive_bboxes,
-                     value_type triangles,
-                     const std::uint32_t depth) -> std::unique_ptr<tree_node>
+auto bvh8::build_tree(const std::vector<rtc::bounding_box>& primitive_bboxes,
+                      value_type triangles,
+                      const std::uint32_t depth) -> std::unique_ptr<tree_node>
 {
   const auto node_bbox = make_node_bbox(primitive_bboxes, triangles);
   auto node = std::make_unique<tree_node>(node_bbox);
@@ -220,38 +261,58 @@ auto bvh::build_tree(const std::vector<rtc::bounding_box>& primitive_bboxes,
     return node;
   }
 
-  value_type left{}, right{};
-  if (const auto split = find_sah_split(primitive_bboxes, triangles))
+  std::vector<value_type> groups{};
+  groups.push_back(std::move(triangles));
+
+  while (groups.size() < tree_node::max_children)
   {
-    auto middle = std::partition(triangles.begin(), triangles.end(), [&](const auto triangle_index) {
-      return centroid_axis(primitive_bboxes[triangle_index], split->axis) < split->position;
-    });
+    auto best_group = groups.size();
+    auto best_saving = rtc_float{};
 
-    left = {triangles.begin(), middle};
-    right = {middle, triangles.end()};
-  }
-
-  if (left.empty() || right.empty())
-  {
-    const auto split_axis = node_bbox.maximum_extent();
-    const auto mid = triangles.begin() + static_cast<std::ptrdiff_t>(triangles.size() / 2);
-
-    std::nth_element(triangles.begin(), mid, triangles.end(), [&](const auto lhs, const auto rhs) {
-      return centroid_axis(primitive_bboxes[lhs], split_axis) < centroid_axis(primitive_bboxes[rhs], split_axis);
-    });
-
-    left = {triangles.begin(), mid};
-    right = {mid, triangles.end()};
-
-    if (left.empty() || right.empty())
+    for (std::size_t i{}; i < groups.size(); ++i)
     {
-      node->triangles = std::make_unique<value_type>(std::move(triangles));
-      return node;
+      if (groups[i].size() <= leaf_triangle_limit)
+        continue;
+
+      const auto split = find_sah_split(primitive_bboxes, groups[i]);
+      if (!split)
+        continue;
+
+      const auto bounds = accumulate_bounds(primitive_bboxes, groups[i]);
+      const auto parent_cost = bounds.surface_area() * bounds.count;
+      const auto saving = parent_cost - split->cost;
+      if (saving > best_saving)
+      {
+        best_saving = saving;
+        best_group = i;
+      }
     }
+
+    if (best_group == groups.size())
+      break;
+
+    auto group = std::move(groups[best_group]);
+    const auto group_bbox = make_node_bbox(primitive_bboxes, group);
+    auto children = split_group(primitive_bboxes, std::move(group), group_bbox);
+    if (children[0].empty() || children[1].empty())
+      break;
+
+    groups[best_group] = std::move(children[0]);
+    groups.push_back(std::move(children[1]));
   }
 
-  node->left = build_tree(primitive_bboxes, std::move(left), depth - 1);
-  node->right = build_tree(primitive_bboxes, std::move(right), depth - 1);
+  if (groups.size() == 1)
+  {
+    node->triangles = std::make_unique<value_type>(std::move(groups.front()));
+    return node;
+  }
+
+  for (auto& group : groups)
+  {
+    node->children[node->child_count] = build_tree(primitive_bboxes, std::move(group), depth - 1);
+    ++node->child_count;
+  }
+
   return node;
 }
 }  // namespace rtc

@@ -12,6 +12,7 @@
 #include "rt_service.hpp"
 #include "scene_model.hpp"
 #include "scoped_timer.hpp"
+#include "bvh8_rt.hpp"
 
 namespace rtc
 {

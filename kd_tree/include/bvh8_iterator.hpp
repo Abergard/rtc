@@ -3,12 +3,12 @@
 #include <array>
 #include <limits>
 
-#include "bvh.hpp"
+#include "bvh8.hpp"
 #include "utility.hpp"
 
 namespace rtc
 {
-class bvh::const_iterator
+class bvh8::const_iterator
 {
   struct node_t
   {
@@ -27,7 +27,7 @@ class bvh::const_iterator
   auto triangle_hit_value(rtc_float t) noexcept -> const_iterator&;
 
  private:
-  static constexpr std::size_t stack_capacity{128};
+  static constexpr std::size_t stack_capacity{192};
 
   rtc::math_ray ray;
   rtc::math_vector inv_ray_direction;

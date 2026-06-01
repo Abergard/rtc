@@ -1,36 +1,36 @@
-#include "bvh_iterator.hpp"
+#include "bvh8_iterator.hpp"
 
 #include <algorithm>
 #include <cassert>
 
-#include "bvh_node.hpp"
+#include "bvh8_node.hpp"
 
 namespace rtc
 {
-auto bvh::const_iterator::operator*() const noexcept -> const value_type&
+auto bvh8::const_iterator::operator*() const noexcept -> const value_type&
 {
   assert(current_node);
   return *current_node->triangles;
 }
 
-auto bvh::const_iterator::operator==(const bvh::const_iterator& i) const noexcept -> bool
+auto bvh8::const_iterator::operator==(const bvh8::const_iterator& i) const noexcept -> bool
 {
   return current_node == i.current_node;
 }
 
-auto bvh::const_iterator::operator!=(const bvh::const_iterator& i) const noexcept -> bool
+auto bvh8::const_iterator::operator!=(const bvh8::const_iterator& i) const noexcept -> bool
 {
   return !(*this == i);
 }
 
-bvh::const_iterator::const_iterator(const rtc::math_ray& r, tree_node* node)
+bvh8::const_iterator::const_iterator(const rtc::math_ray& r, tree_node* node)
     : ray{r}, inv_ray_direction{1.0F / r.direction()}
 {
   push_if_hit(node);
   operator++();
 }
 
-auto bvh::const_iterator::operator++() noexcept -> const_iterator&
+auto bvh8::const_iterator::operator++() noexcept -> const_iterator&
 {
   current_node = nullptr;
 
@@ -49,29 +49,34 @@ auto bvh::const_iterator::operator++() noexcept -> const_iterator&
       return *this;
     }
 
-    const auto left_t = intersection_value(node->left.get());
-    const auto right_t = intersection_value(node->right.get());
+    std::array<node_t, tree_node::max_children> children{};
+    std::size_t child_hits{};
+    for (std::size_t i{}; i < node->child_count; ++i)
+    {
+      const auto child = node->children[i].get();
+      const auto child_t = intersection_value(child);
+      if (child_t < nearest_intersect_ray_value)
+      {
+        auto insert_at = child_hits;
+        while (insert_at > 0 && children[insert_at - 1].tmin < child_t)
+        {
+          children[insert_at] = children[insert_at - 1];
+          --insert_at;
+        }
 
-    if (left_t < right_t)
-    {
-      if (right_t < nearest_intersect_ray_value)
-        nodes[nodes_size++] = {node->right.get(), right_t};
-      if (left_t < nearest_intersect_ray_value)
-        nodes[nodes_size++] = {node->left.get(), left_t};
+        children[insert_at] = {child, child_t};
+        ++child_hits;
+      }
     }
-    else
-    {
-      if (left_t < nearest_intersect_ray_value)
-        nodes[nodes_size++] = {node->left.get(), left_t};
-      if (right_t < nearest_intersect_ray_value)
-        nodes[nodes_size++] = {node->right.get(), right_t};
-    }
+
+    for (std::size_t i{}; i < child_hits && nodes_size < nodes.size(); ++i)
+      nodes[nodes_size++] = children[i];
   }
 
   return *this;
 }
 
-auto bvh::const_iterator::intersection_value(const tree_node* node) const noexcept -> rtc_float
+auto bvh8::const_iterator::intersection_value(const tree_node* node) const noexcept -> rtc_float
 {
   if (!node)
     return std::numeric_limits<rtc_float>::max();
@@ -96,14 +101,14 @@ auto bvh::const_iterator::intersection_value(const tree_node* node) const noexce
   return t_in;
 }
 
-auto bvh::const_iterator::push_if_hit(tree_node* node) noexcept -> void
+auto bvh8::const_iterator::push_if_hit(tree_node* node) noexcept -> void
 {
   const auto t = intersection_value(node);
   if (t < nearest_intersect_ray_value && nodes_size < nodes.size())
     nodes[nodes_size++] = {node, t};
 }
 
-auto bvh::const_iterator::triangle_hit_value(const rtc_float t) noexcept -> const_iterator&
+auto bvh8::const_iterator::triangle_hit_value(const rtc_float t) noexcept -> const_iterator&
 {
   return nearest_intersect_ray_value = t, *this;
 }
