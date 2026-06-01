@@ -6,10 +6,11 @@
 
 namespace rtc
 {
-auto kd_tree::const_iterator::operator*() const noexcept -> const value_type&
+auto kd_tree::const_iterator::operator*() const noexcept -> triangle_range
 {
-  assert(current_node);
-  return *current_node->triangles;
+  assert(current_node && leaf_triangles);
+  const auto first = leaf_triangles->data() + current_node->triangles.begin;
+  return {first, first + current_node->triangles.count};
 }
 
 
@@ -23,7 +24,10 @@ auto kd_tree::const_iterator::operator!=(const kd_tree::const_iterator& i) const
   return !(*this == i);
 }
 
-kd_tree::const_iterator::const_iterator(const rtc::math_ray& r, node_t node)
+kd_tree::const_iterator::const_iterator(const rtc::math_ray& r,
+                                        const std::vector<std::uint32_t>* triangle_storage,
+                                        node_t node)
+    : leaf_triangles{triangle_storage}
 {
   nodes.push(node);
   ray = {1.0F / r.direction(), r.origin()};

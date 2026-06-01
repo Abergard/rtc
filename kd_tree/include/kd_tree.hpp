@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <tuple>
-
+#include <vector>
 
 #include "bounding_edge.hpp"
 #include "math_ray.hpp"
@@ -15,7 +17,6 @@ namespace rtc
 class kd_tree
 {
   struct tree_node;
-  using value_type = std::vector<std::uint32_t>;
   using edge_buffer_t = std::vector<rtc::bounding_edge_point>;
   using edge_buffer_array_t = std::array<edge_buffer_t, 3>;
 
@@ -23,6 +24,15 @@ class kd_tree
   using vector_tuple = std::tuple<std::vector<T>...>;
 
  public:
+  struct triangle_range
+  {
+    const std::uint32_t* first{};
+    const std::uint32_t* last{};
+
+    [[nodiscard]] auto begin() const noexcept -> const std::uint32_t* { return first; }
+    [[nodiscard]] auto end() const noexcept -> const std::uint32_t* { return last; }
+  };
+
   class const_iterator;
 
   rtc_hot explicit kd_tree(const rtc::scene_model &sm);
@@ -39,6 +49,7 @@ class kd_tree
  private:
   ray_box_intersection_test bbox;
   std::unique_ptr<tree_node> root;
+  std::vector<std::uint32_t> leaf_triangles;
 
   rtc_hot void build_tree(std::unique_ptr<tree_node> &node,
                           rtc::bounding_box b,

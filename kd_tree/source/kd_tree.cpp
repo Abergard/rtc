@@ -37,6 +37,7 @@ kd_tree::kd_tree(const rtc::scene_model& ss) : bbox{ss.points}
   std::for_each(t.begin(), t.end(), [&](auto& t) { primitive_bboxes.push_back(make_bbox(p, t)); });
   std::generate(v.begin(), v.end(), [i = 0]() mutable { return i++; });
 
+  leaf_triangles.reserve(t.size());
   build_tree(root, node_bbox, std::move(v), primitive_bboxes, edge_buffer, max_depth);
 }
 
@@ -45,7 +46,7 @@ auto kd_tree::cbegin(const rtc::math_ray& ray) const noexcept -> kd_tree::const_
   if (auto range = bbox.intersection_values_for(ray))
   {
     const auto [tmin, tmax] = range.value();
-    return const_iterator{ray, {root.get(), tmin, tmax}};
+    return const_iterator{ray, &leaf_triangles, {root.get(), tmin, tmax}};
   }
 
   return const_iterator{};
@@ -168,10 +169,11 @@ void kd_tree::build_tree(std::unique_ptr<tree_node>& node,
                          const std::uint32_t depth,
                          std::uint32_t bad_refines)
 {
-  const auto create_leaf_node = [&node, &tr] {
+  const auto create_leaf_node = [this, &node, &tr] {
     node = std::make_unique<tree_node>();
-    node->triangles = std::make_unique<kd_tree::value_type>();
-    node->triangles->insert(node->triangles->end(), tr.begin(), tr.end());
+    node->triangles.begin = static_cast<std::uint32_t>(leaf_triangles.size());
+    node->triangles.count = static_cast<std::uint32_t>(tr.size());
+    leaf_triangles.insert(leaf_triangles.end(), tr.begin(), tr.end());
   };
 
   if (tr.size() <= 1 || !depth)

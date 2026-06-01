@@ -74,7 +74,7 @@ template <typename _rt = ::rtc::kdtree_rt>
 class rt_service
 {
  public:
-  static constexpr std::uint16_t default_tile_size{32};
+  static constexpr std::uint16_t default_tile_size{16};
 
   using ray_tracer = _rt;
   using trace_result = std::future<rtc::intersection>;
@@ -184,9 +184,7 @@ class rt_service
 template <typename T>
 rt_service<T>::scheduler_state::scheduler_state(const std::uint32_t worker_count)
 {
-  const auto count = std::max(1U, worker_count);
-  workers.reserve(count);
-
+  const auto count = std::max(1U, worker_count); workers.reserve(count);
   for (std::uint32_t i{}; i < count; ++i)
     workers.emplace_back([this] { worker_loop(); });
 }
@@ -465,12 +463,10 @@ auto rt_service<T>::render_tile(const rtc::rt_tile& tile,
       if (progress && progress->is_cancelled())
         break;
 
-      RTC_TRACE_SCOPE_CAT("pixel generation", "rt_service::execute");
+      //RTC_TRACE_SCOPE_CAT("pixel generation", "rt_service::execute");
       const auto primary = op.emit_ray(x, y);
       const auto c = rt_alg.make_color(primary, rtc::black, sync_rt);
 
-      DEBUG << "pixel[" << x << "," << y << "]"
-            << "ray " << primary.direction() << " color: " << c;
       bmp.assign(x, y, make_rgb(c));
       ++rendered_pixels;
     }
