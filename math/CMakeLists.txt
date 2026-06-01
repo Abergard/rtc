@@ -50,3 +50,19 @@ endif()
 
 target_link_libraries(rtc_math_ut PRIVATE rtc_math gmock_main)
 add_test(rtc_math_ut ${CMAKE_BINARY_DIR}/math/rtc_math_ut --gtest_color=yes)
+
+if(TARGET benchmark::benchmark)
+  add_executable(point_in_triangle_benchmark benchmark/point_in_triangle_benchmark.cpp)
+  set_target_properties(point_in_triangle_benchmark PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+
+  target_link_libraries(point_in_triangle_benchmark PRIVATE rtc_math benchmark::benchmark)
+  add_custom_target(run_point_in_triangle_benchmark
+      COMMAND point_in_triangle_benchmark --benchmark_min_time=0.5s
+      DEPENDS point_in_triangle_benchmark
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/math
+  )
+endif()
