@@ -17,6 +17,7 @@ endif()
 
 
 find_package(Boost REQUIRED)
+find_package(benchmark QUIET)
 
 enable_testing()
 
@@ -52,6 +53,24 @@ target_include_directories(kd_tree_ut SYSTEM PRIVATE ${GMOCK_INCLUDE_DIR} ${GTES
 target_link_libraries(rtc_kd_tree PUBLIC rtc_core rtc_ray_tracer rtc_data_model rtc_math)
 target_link_libraries(kd_tree_ut PRIVATE rtc_core rtc_kd_tree input_model gmock_main)
 add_test(kd_storage_ut ${CMAKE_BINARY_DIR}/kd_tree/kd_tree_ut --gtest_color=yes)
+
+if(benchmark_FOUND OR TARGET benchmark::benchmark)
+  add_executable(kd_tree_benchmark benchmark/kd_tree_benchmark.cpp)
+  set_target_properties(kd_tree_benchmark PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+
+  target_link_libraries(kd_tree_benchmark PRIVATE rtc_kd_tree input_model benchmark::benchmark)
+  add_custom_target(run_kd_tree_benchmark
+      COMMAND kd_tree_benchmark --benchmark_min_time=0.5s
+      DEPENDS kd_tree_benchmark
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/kd_tree
+  )
+else()
+  message(STATUS "Google Benchmark not found; kd_tree_benchmark target disabled")
+endif()
 
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/room.xml DESTINATION ${CMAKE_BINARY_DIR}/kd_tree/)
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/kitchen.xml DESTINATION ${CMAKE_BINARY_DIR}/kd_tree/)
