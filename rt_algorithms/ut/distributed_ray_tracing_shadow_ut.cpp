@@ -231,6 +231,50 @@ TEST(distributed_ray_tracing_shadow_ut, diffuse_transmission_lights_back_side_of
   ASSERT_THAT(color.blue(), FloatNear(1.0F, 0.00001F));
 }
 
+TEST(distributed_ray_tracing_shadow_ut, material_light_helper_computes_direct_diffuse_contribution)
+{
+  rtc::surface_material material;
+  material.kd = 1.0F;
+  material.ktd = 0.0F;
+  material.ks = 0.0F;
+
+  rtc::light light;
+  light.light_color = {1.0F, 1.0F, 1.0F};
+  light.position = {0.0F, 0.0F, 10.0F};
+  light.inv_square = {0.0F, 0.0F, 1.0F};
+
+  const rtc::math_point hit_point{0.0F, 0.0F, 0.0F};
+  const rtc::math_vector normal{0.0F, 0.0F, -1.0F};
+  const auto sample = rtc::material_light::make_light_sample(material, hit_point, normal, light);
+
+  const auto color = rtc::material_light::direct_contribution(
+      material, rtc::color{0.25F, 0.5F, 1.0F}, hit_point, normal, {0.0F, 0.0F, 100.0F}, light, sample, 1.0F);
+
+  expect_color_near(color, {0.25F, 0.5F, 1.0F});
+}
+
+TEST(distributed_ray_tracing_shadow_ut, material_light_helper_uses_shadow_transmittance)
+{
+  rtc::surface_material material;
+  material.kd = 1.0F;
+  material.ktd = 0.0F;
+  material.ks = 0.0F;
+
+  rtc::light light;
+  light.light_color = {1.0F, 1.0F, 1.0F};
+  light.position = {0.0F, 0.0F, 10.0F};
+  light.inv_square = {0.0F, 0.0F, 1.0F};
+
+  const rtc::math_point hit_point{0.0F, 0.0F, 0.0F};
+  const rtc::math_vector normal{0.0F, 0.0F, -1.0F};
+  const auto sample = rtc::material_light::make_light_sample(material, hit_point, normal, light);
+
+  const auto color = rtc::material_light::direct_contribution(
+      material, rtc::color{1.0F, 1.0F, 1.0F}, hit_point, normal, {0.0F, 0.0F, 100.0F}, light, sample, 0.25F);
+
+  expect_color_near(color, {0.25F, 0.25F, 0.25F});
+}
+
 TEST(distributed_ray_tracing_shadow_ut, missing_refracted_color_does_not_reserve_transmission_weight)
 {
   auto scene = material_mix_scene();

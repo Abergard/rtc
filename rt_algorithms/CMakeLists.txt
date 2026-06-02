@@ -19,13 +19,19 @@ find_package(Boost COMPONENTS date_time REQUIRED)
 
 enable_testing()
 
-#FILE(GLOB RTC_rt_algorithms_SOURCES
-     #source/*.cpp
-#)
-add_library(rtc_rt_algorithms INTERFACE)
+FILE(GLOB RTC_rt_algorithms_SOURCES
+     source/*.cpp
+)
+add_library(rtc_rt_algorithms ${RTC_rt_algorithms_SOURCES})
 
-target_include_directories(rtc_rt_algorithms INTERFACE include/ ${Boost_INCLUDE_DIRS})
-target_link_libraries(rtc_rt_algorithms INTERFACE rtc_kd_tree) #why private triggers error
+set_target_properties(rtc_rt_algorithms PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+
+target_include_directories(rtc_rt_algorithms PUBLIC include/ ${Boost_INCLUDE_DIRS})
+target_link_libraries(rtc_rt_algorithms PUBLIC rtc_kd_tree) #why private triggers error
 #target_link_libraries(rtc_rt_algorithms INTERFACE ${Boost_THREAD_LIBRARY_RELEASE}) #why private triggers error
 
 
