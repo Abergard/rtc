@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cmath>
+#include <cstdint>
 #include <iterator>
 
 #include "intersection.hpp"
@@ -71,8 +72,15 @@ class shadow_ray
 
     auto operator++() -> iterator&
     {
+      constexpr std::uint32_t max_transparent_hits{64};
       if (!active)
         return *this;
+
+      if (++transparent_hits >= max_transparent_hits)
+      {
+        active = false;
+        return *this;
+      }
 
       if (current.object.is_none() || current.object.hit_value() >= 1.0F)
       {
@@ -90,6 +98,7 @@ class shadow_ray
           current.transmittance *= std::pow(transmittance, current_ray_length * hit_value);
 
         current_ray_length *= std::max(0.0F, 1.0F - hit_value);
+        current_ray = {light->position - ray_hit, ray_hit};
         current.object = shadow_ray::trace_one(*rt, current_ray);
         return *this;
       }
@@ -107,9 +116,10 @@ class shadow_ray
     const rtc::scene_model* scene{};
     const rtc::light* light{};
     rt_serv* rt{};
-    const rtc::math_ray& current_ray{};
+    rtc::math_ray current_ray{};
     rtc_float current_ray_length{};
     value_type current{};
+    std::uint32_t transparent_hits{};
     bool active{};
   };
 
@@ -128,13 +138,18 @@ class shadow_ray
   template <typename rt_serv>
   auto trace(rt_serv& rt) const -> sample
   {
+    constexpr std::uint32_t max_transparent_hits{64};
     sample result{};
     auto current_ray{ray};
     auto current_ray_length = ray_length;
     const rtc::surface_material* material{};
+    std::uint32_t transparent_hits{};
 
     do
     {
+      if (transparent_hits++ >= max_transparent_hits)
+        return result;
+
       result.object = trace_one(rt, current_ray);
       if (result.object.is_none() || result.object.hit_value() >= 1.0F)
          return result;
@@ -170,7 +185,7 @@ class shadow_ray
   }
 
   const rtc::scene_model* scene{};
-  const rtc::math_ray& ray{};
+  rtc::math_ray ray{};
   const rtc::light* light{};
   rtc_float ray_length{};
 };

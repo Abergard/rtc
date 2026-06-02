@@ -14,6 +14,7 @@ TEST(chrome_trace_ut, writes_complete_event_trace_file)
 {
   const std::string file_name{"chrome_trace_ut.json"};
 
+  chrome_trace::instance().set_enabled(true);
   RTC_TRACE_CLEAR();
   {
     RTC_TRACE_SCOPE_CAT("unit scope", "unit");
@@ -31,6 +32,7 @@ TEST(chrome_trace_ut, writes_complete_event_trace_file)
   ASSERT_NE(content.find("\"dur\":"), std::string::npos);
 
   RTC_TRACE_CLEAR();
+  chrome_trace::instance().set_enabled(false);
 }
 
 }  // namespace ut

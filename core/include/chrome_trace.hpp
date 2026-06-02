@@ -16,6 +16,8 @@ class chrome_trace
   static auto instance() -> chrome_trace&;
   ~chrome_trace() noexcept;
 
+  auto set_enabled(bool value) noexcept -> void;
+  [[nodiscard]] auto is_enabled() const noexcept -> bool;
   auto set_output_file(std::string file_name) -> void;
   auto add_complete_event(const char* name,
                           const char* category,
@@ -52,6 +54,7 @@ class chrome_trace
   static auto json_escape(std::ostream& out, const std::string& value) -> void;
 
   std::atomic<thread_buffer*> buffers{};
+  std::atomic<bool> enabled{};
   std::string output_file{"rtc_trace.json"};
 };
 

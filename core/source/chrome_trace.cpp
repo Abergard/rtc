@@ -27,11 +27,22 @@ auto chrome_trace::instance() -> chrome_trace&
 chrome_trace::~chrome_trace() noexcept
 try
   {
-    flush();
+    if (is_enabled())
+      flush();
   }
 catch (...)
   {
   }
+
+auto chrome_trace::set_enabled(const bool value) noexcept -> void
+{
+  enabled.store(value, std::memory_order_release);
+}
+
+auto chrome_trace::is_enabled() const noexcept -> bool
+{
+  return enabled.load(std::memory_order_acquire);
+}
 
 auto chrome_trace::set_output_file(std::string file_name) -> void
 {
@@ -43,6 +54,9 @@ auto chrome_trace::add_complete_event(const char* name,
                                       std::chrono::steady_clock::time_point start,
                                       std::chrono::steady_clock::time_point end) -> void
 {
+  if (!is_enabled())
+    return;
+
   complete_event event;
   event.name = name;
   event.category = category;
@@ -59,6 +73,7 @@ auto chrome_trace::clear() -> void
   for (auto buffer = buffers.load(std::memory_order_acquire); buffer != nullptr; buffer = buffer->next)
   {
     buffer->events.clear();
+    buffer->events.shrink_to_fit();
   }
 }
 
@@ -180,7 +195,9 @@ chrome_trace_scope::chrome_trace_scope(const char* scope_name, const char* scope
 chrome_trace_scope::~chrome_trace_scope() noexcept
 try
   {
-    chrome_trace::instance().add_complete_event(name, category, start, std::chrono::steady_clock::now());
+    auto& trace = chrome_trace::instance();
+    if (trace.is_enabled())
+      trace.add_complete_event(name, category, start, std::chrono::steady_clock::now());
   }
 catch (...)
   {
