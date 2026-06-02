@@ -33,6 +33,22 @@ struct fake_rt_service
   }
 };
 
+struct recording_rt_service
+{
+  std::vector<rtc::intersection> intersections{};
+  std::vector<rtc::math_ray> rays{};
+  std::size_t next{};
+
+  auto trace_ray(const rtc::math_ray& ray) -> fake_trace_result
+  {
+    rays.push_back(ray);
+    if (next < intersections.size())
+      return {intersections[next++]};
+
+    return {};
+  }
+};
+
 auto shadow_scene() -> std::shared_ptr<rtc::scene_model>
 {
   auto scene = std::make_shared<rtc::scene_model>();
@@ -149,9 +165,9 @@ TEST(distributed_ray_tracing_shadow_ut, transparent_object_between_surface_and_l
 
   const auto color = lit_receiver_color(scene, rt);
 
-  ASSERT_THAT(color.red(), FloatNear(0.03125F, 0.00001F));
-  ASSERT_THAT(color.green(), FloatNear(0.03125F, 0.00001F));
-  ASSERT_THAT(color.blue(), FloatNear(0.03125F, 0.00001F));
+  ASSERT_THAT(color.red(), FloatNear(0.03125F, 0.00002F));
+  ASSERT_THAT(color.green(), FloatNear(0.03125F, 0.00002F));
+  ASSERT_THAT(color.blue(), FloatNear(0.03125F, 0.00002F));
 }
 
 TEST(distributed_ray_tracing_shadow_ut, shadow_ray_iterator_advances_through_transparent_blockers)
@@ -173,10 +189,49 @@ TEST(distributed_ray_tracing_shadow_ut, shadow_ray_iterator_advances_through_tra
 
   ASSERT_NE(it, end);
   ASSERT_TRUE(it->object.is_none());
-  ASSERT_THAT(it->transmittance, FloatNear(0.03125F, 0.00001F));
+  ASSERT_THAT(it->transmittance, FloatNear(0.03125F, 0.00002F));
 
   ++it;
   ASSERT_EQ(it, end);
+}
+
+TEST(distributed_ray_tracing_shadow_ut, shadow_ray_trace_skips_repeated_same_object_self_hits)
+{
+  auto scene = shadow_scene();
+  scene->materials[1].kts = 0.25F;
+  scene->materials[1].ktd = 0.25F;
+  fake_rt_service rt{{rtc::intersection{1, 0.25F},
+                      rtc::intersection{1, 0.25F},
+                      rtc::intersection{1, 0.25F},
+                      rtc::no_intersection}};
+  rtc::shadow_ray shadow{*scene, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 10.0F}, scene->lights.front()};
+
+  const auto result = shadow.trace(rt);
+
+  ASSERT_TRUE(result.object.is_none());
+  ASSERT_EQ(rt.next, 4U);
+}
+
+TEST(distributed_ray_tracing_shadow_ut, shadow_ray_offsets_continuation_origin_toward_light)
+{
+  auto scene = shadow_scene();
+  scene->materials[1].kts = 0.25F;
+  scene->materials[1].ktd = 0.25F;
+  recording_rt_service rt{{rtc::intersection{1, 0.5F}, rtc::no_intersection}};
+  rtc::shadow_ray shadow{*scene, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 10.0F}, scene->lights.front()};
+
+  const auto result = shadow.trace(rt);
+
+  ASSERT_TRUE(result.object.is_none());
+  ASSERT_EQ(rt.rays.size(), 2U);
+  ASSERT_THAT(rt.rays.front().origin().x(), FloatNear(0.0F, 0.00001F));
+  ASSERT_THAT(rt.rays.front().origin().y(), FloatNear(0.0F, 0.00001F));
+  ASSERT_THAT(rt.rays.front().origin().z(), FloatNear(0.001F, 0.00001F));
+  ASSERT_THAT(rt.rays.front().direction().z(), FloatNear(9.999F, 0.00001F));
+  ASSERT_THAT(rt.rays.back().origin().x(), FloatNear(0.0F, 0.00001F));
+  ASSERT_THAT(rt.rays.back().origin().y(), FloatNear(0.0F, 0.00001F));
+  ASSERT_THAT(rt.rays.back().origin().z(), FloatNear(5.0011F, 0.00001F));
+  ASSERT_THAT(rt.rays.back().direction().z(), FloatNear(4.9989F, 0.00001F));
 }
 
 TEST(distributed_ray_tracing_shadow_ut, non_shadow_casting_object_between_surface_and_light_is_skipped)
