@@ -1,5 +1,8 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
+#include <cmath>
 #include <memory>
 #include <optional>
 
@@ -10,6 +13,32 @@
 
 namespace rtc
 {
+namespace detail
+{
+inline auto saturated(const rtc_float value) noexcept -> rtc_float
+{
+  return std::clamp(value, 0.0F, 1.0F);
+}
+
+inline auto reflection_weight(const rtc::surface_material& material) noexcept -> rtc_float
+{
+  if (material.mirror)
+    return 1.0F;
+
+  return material.reflection ? saturated(material.ks) : 0.0F;
+}
+
+inline auto transmission_weight(const rtc::surface_material& material) noexcept -> rtc_float
+{
+  return saturated(material.kts);
+}
+
+inline auto local_weight(const rtc::surface_material& material) noexcept -> rtc_float
+{
+  return std::max(0.0F, 1.0F - reflection_weight(material) - transmission_weight(material));
+}
+}  // namespace detail
+
 template <typename = void>
 struct distributed_ray_tracing_shadows
 {
@@ -29,28 +58,37 @@ struct distributed_ray_tracing_shadows
 
 #if 1
     rtc::color illumination{m.ka * scene->ambient};
-    for (const auto& light : scene->lights)
+    if (m.shadowfall)
     {
-      // TODO: Extract this into rtc::shadow_ray class probably with ctor which takes reference to
-      //      Illumination
-      // rtc::shadow_ray<rtc::color> sr{illumination};
-
-      const auto l = light.position - object.hit_point(ray);
-
-      if ((cos(n, l) > 0) || object.is_refractive(*scene))
+      for (const auto& light : scene->lights)
       {
-        const auto [i, f] = get_intersection_with_light_ray(object, ray, l, light, rt);
+        // TODO: Extract this into rtc::shadow_ray class probably with ctor which takes reference to
+        //      Illumination
+        // rtc::shadow_ray<rtc::color> sr{illumination};
 
-        if (i.is_none() || !(i < intersection(_, 1.0F)))
+        const auto l = light.position - object.hit_point(ray);
+
+        if (cos(n, l) > 0)
         {
-          const auto nl = normalize(l);
-          const auto R = 2.0F * dot(nl, n) * n - nl;
+          const auto [i, f] = get_intersection_with_light_ray(object, ray, l, light, rt);
 
-          const auto dot_ln = dot(n, nl) < 0 ? m.kts * dot(nl, -n) : dot(nl, n);
-          const auto V = normalize(scene->optical_system.view_point - object.hit_point(ray));
-          const auto d = inverse_square_factor(light, l);
+          if (i.is_none() || !(i < intersection(_, 1.0F)))
+          {
+            const auto nl = normalize(l);
+            const auto dot_ln = std::max(0.0F, dot(n, nl));
+            auto specular = 0.0F;
+            if (m.ks > 0.0F)
+            {
+              const auto R = 2.0F * dot(nl, n) * n - nl;
+              const auto V = normalize(scene->optical_system.view_point - object.hit_point(ray));
+              const auto specular_angle = std::max(0.0F, dot(R, V));
+              const auto shininess = static_cast<std::uint32_t>(std::max(1.0F, m.gs));
+              specular = m.ks * rtc::pow(specular_angle, shininess);
+            }
+            const auto d = inverse_square_factor(light, l);
 
-          illumination += f * ((m.kd * dot_ln + m.ks * rtc::pow(dot(R, V), 300)) / d) * light.light_color;
+            illumination += f * ((m.kd * dot_ln + specular) / d) * light.light_color;
+          }
         }
       }
     }
@@ -58,13 +96,13 @@ struct distributed_ray_tracing_shadows
     rtc::color illumination{1, 1, 1};
 #endif
 
-    rtc::color r = rtc::clamp(object.color(*scene) * illumination);
+    rtc::color r = rtc::clamp(object.color(*scene) * illumination + m.selfLuminance * object.color(*scene));
 
     if (refracted)
-      r = (1 - m.kts) * r + m.kts * refracted.value();
+      r = detail::local_weight(m) * r + detail::transmission_weight(m) * refracted.value();
 
     if (reflected)
-      r = !m.mirror ? ((1.0F - m.ks) * r + m.ks * reflected.value()) : reflected.value();
+      r = (1.0F - detail::reflection_weight(m)) * r + detail::reflection_weight(m) * reflected.value();
 
     return r;
   }
@@ -90,14 +128,21 @@ struct distributed_ray_tracing_shadows
       {
         const auto ray_hit = intersect.hit_point(shadow_ray);
         shadow_ray = {light.position - ray_hit, ray_hit};
+        const auto& material = intersect.attribute(*scene);
 
-        acc *= std::pow(0.5 * (intersect.attribute(*scene).kts + intersect.attribute(*scene).ktd),
-                        length * (intersect - priv));
+        if (material.shadowcast)
+        {
+          const auto transparent_shadow = detail::saturated(0.5F * (material.kts + material.ktd));
+          const auto segment_length = length * (intersect - priv);
+          acc *= std::pow(transparent_shadow, segment_length);
+        }
         priv = intersect;
       }
 
       intersect = rt.trace_ray(shadow_ray).get();
-    } while (intersect.is_present() && intersect.is_refractive(*scene) && intersect < intersection(_, 1.0F));
+    } while (intersect.is_present() &&
+             (!intersect.attribute(*scene).shadowcast || intersect.is_refractive(*scene)) &&
+             intersect < intersection(_, 1.0F));
 
     assert(intersect.is_present() && intersect.is_refractive(*scene) && !(intersect < intersection{_, 1.0F}) ||
            intersect.is_present() && !intersect.is_refractive(*scene) && !(intersect < intersection{_, 1.0F}) ||

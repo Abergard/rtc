@@ -70,7 +70,8 @@ intersection::operator bool() const noexcept
 
 auto intersection::is_reflective(const rtc::scene_model& data) const noexcept -> bool
 {
-  return attribute(data).mirror || (attribute(data).ks != 0.0F);
+  const auto& material = attribute(data);
+  return material.mirror || (material.reflection && material.ks != 0.0F);
 }
 
 auto intersection::is_refractive(const rtc::scene_model& data) const noexcept -> bool
