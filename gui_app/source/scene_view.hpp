@@ -42,6 +42,7 @@ class SceneView final : public QOpenGLWidget
   [[nodiscard]] auto selectedMaterial() const noexcept -> std::optional<std::uint16_t>;
   [[nodiscard]] auto cameraForRender(const QSize& renderSize) const -> rtc::camera;
   auto flipSelectedTriangle() -> bool;
+  auto removeSelectedTriangle() -> std::optional<std::size_t>;
   auto fixVisibleTriangleNormals(int sampleStep = 4) -> VisibleNormalFixResult;
   auto addLightAtCameraTarget() -> std::size_t;
   auto removeSelectedLight() -> bool;

@@ -158,6 +158,28 @@ auto SceneView::flipSelectedTriangle() -> bool
   return true;
 }
 
+auto SceneView::removeSelectedTriangle() -> std::optional<std::size_t>
+{
+  if (!scene_ || !selectedTriangle_ || *selectedTriangle_ >= scene_->triangles.size())
+    return std::nullopt;
+
+  const auto removed = *selectedTriangle_;
+  scene_->triangles.erase(scene_->triangles.begin() + static_cast<std::ptrdiff_t>(removed));
+
+  if (removed < scene_->material_id.size())
+    scene_->material_id.erase(scene_->material_id.begin() + static_cast<std::ptrdiff_t>(removed));
+
+  if (removed < scene_->normals.size())
+    scene_->normals.erase(scene_->normals.begin() + static_cast<std::ptrdiff_t>(removed));
+  else
+    scene_->normals.assign(scene_->triangles.size(), rtc::math_vector{});
+
+  selectedTriangle_ = std::nullopt;
+  renderedImage_ = {};
+  update();
+  return removed;
+}
+
 auto SceneView::addLightAtCameraTarget() -> std::size_t
 {
   if (!scene_)

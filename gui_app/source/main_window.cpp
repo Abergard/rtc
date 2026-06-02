@@ -91,6 +91,16 @@ auto make_light_node(const rtc::light& light, const std::size_t lightIndex) -> b
   lightNode.put("sampling", light.sampling);
   return lightNode;
 }
+
+auto make_triangle_node(const rtc::triangle3d& triangle, const std::uint16_t materialIndex) -> boost::property_tree::ptree
+{
+  boost::property_tree::ptree triangleNode;
+  triangleNode.put("<xmlattr>.v1", triangle.vertex_a());
+  triangleNode.put("<xmlattr>.v2", triangle.vertex_b());
+  triangleNode.put("<xmlattr>.v3", triangle.vertex_c());
+  triangleNode.put("<xmlattr>.attribute", materialIndex);
+  return triangleNode;
+}
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
@@ -110,6 +120,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   auto* resetAction = toolbar->addAction("Reset Camera");
   auto* previewAction = toolbar->addAction("OpenGL Preview");
   auto* flipSelectedAction = toolbar->addAction("Flip Selected");
+  auto* removeSelectedTriangleAction = toolbar->addAction("Remove Selected");
   auto* fixVisibleNormalsAction = toolbar->addAction("Fix Visible Normals");
   auto* editMaterialAction = toolbar->addAction("Edit Material");
   auto* addLightAction = toolbar->addAction("Add Light");
@@ -131,6 +142,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
   connect(resetAction, &QAction::triggered, view_, [this] { view_->resetCamera(); });
   connect(previewAction, &QAction::triggered, view_, [this] { view_->showOpenGlPreview(); });
   connect(flipSelectedAction, &QAction::triggered, this, [this] { flipSelectedTriangle(); });
+  connect(removeSelectedTriangleAction, &QAction::triggered, this, [this] { removeSelectedTriangle(); });
   connect(fixVisibleNormalsAction, &QAction::triggered, this, [this] { fixVisibleTriangleNormals(); });
   connect(editMaterialAction, &QAction::triggered, this, [this] { editSelectedMaterial(); });
   connect(addLightAction, &QAction::triggered, this, [this] { addLight(); });
@@ -247,23 +259,13 @@ void MainWindow::saveScene()
     read_xml(loadedScenePath_.toStdString(), tree);
     auto& trianglesNode = tree.get_child("model.triangles");
 
-    std::size_t triangleIndex{};
-    for (auto& node : trianglesNode)
-    {
-      if (node.first != "triangle")
-        continue;
+    if (scene->material_id.size() != scene->triangles.size())
+      throw std::runtime_error{"Triangle/material mapping count does not match the loaded scene."};
 
-      if (triangleIndex >= scene->triangles.size())
-        throw std::runtime_error{"XML contains fewer in-memory triangles than expected."};
-
-      const auto& triangle = scene->triangles[triangleIndex++];
-      node.second.put("<xmlattr>.v1", triangle.vertex_a());
-      node.second.put("<xmlattr>.v2", triangle.vertex_b());
-      node.second.put("<xmlattr>.v3", triangle.vertex_c());
-    }
-
-    if (triangleIndex != scene->triangles.size())
-      throw std::runtime_error{"XML triangle count does not match the loaded scene."};
+    trianglesNode.clear();
+    trianglesNode.put("<xmlattr>.size", scene->triangles.size());
+    for (std::size_t i{}; i < scene->triangles.size(); ++i)
+      trianglesNode.push_back({"triangle", make_triangle_node(scene->triangles[i], scene->material_id[i])});
 
     auto& attributesNode = tree.get_child("model.attributes");
     std::size_t materialIndex{};
@@ -440,6 +442,20 @@ void MainWindow::flipSelectedTriangle()
   {
     const auto selected = view_->selectedTriangle();
     statusBar()->showMessage(QString("Flipped triangle %1").arg(static_cast<qulonglong>(*selected)));
+  }
+  else
+  {
+    statusBar()->showMessage("Select a triangle first with Shift + left click.");
+  }
+}
+
+void MainWindow::removeSelectedTriangle()
+{
+  const auto removed = view_->removeSelectedTriangle();
+  if (removed)
+  {
+    statusBar()->showMessage(
+        QString("Removed triangle %1. Use Save BRS to persist.").arg(static_cast<qulonglong>(*removed)));
   }
   else
   {

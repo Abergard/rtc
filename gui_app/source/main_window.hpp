@@ -27,6 +27,7 @@ class MainWindow final : public QMainWindow
   void startRender();
   void pollRender();
   void flipSelectedTriangle();
+  void removeSelectedTriangle();
   void fixVisibleTriangleNormals();
   void editSelectedMaterial();
   void addLight();
