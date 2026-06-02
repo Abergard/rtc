@@ -92,7 +92,7 @@ rtc_pure auto intersection::reflect(const math_ray& r, const rtc::scene_model& s
   return std::nullopt;
 }
 
-rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& sc, bool wasRefracted = false) const noexcept -> std::optional<math_ray>
+rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& sc, bool wasRefracted ) const noexcept -> std::optional<math_ray>
 {
   // if(is_refractive(sc))
   // {

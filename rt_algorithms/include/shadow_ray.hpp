@@ -38,7 +38,7 @@ class shadow_ray
              const rtc::math_vector& direction_to_light,
              const rtc::light& source,
              rtc_float direction_to_light_length) noexcept
-      : scene{&scene}, origin{origin}, direction_to_light{direction_to_light}, light{&source},
+      : scene{&scene}, ray{direction_to_light, origin}, light{&source},
         ray_length{direction_to_light_length}
   {
   }
@@ -60,7 +60,7 @@ class shadow_ray
 
     iterator() noexcept = default;
     iterator(const shadow_ray& owner, rt_serv& rt)
-        : scene{owner.scene}, light{owner.light}, rt{&rt}, current_ray{owner.direction_to_light, owner.origin},
+        : scene{owner.scene}, light{owner.light}, rt{&rt}, current_ray{owner.ray},
           current_ray_length{owner.ray_length}, active{true}
     {
       current.object = shadow_ray::trace_one(rt, current_ray);
@@ -89,7 +89,6 @@ class shadow_ray
         if (material.shadowcast && transmittance < 1.0F)
           current.transmittance *= std::pow(transmittance, current_ray_length * hit_value);
 
-        current_ray = {light->position - ray_hit, ray_hit};
         current_ray_length *= std::max(0.0F, 1.0F - hit_value);
         current.object = shadow_ray::trace_one(*rt, current_ray);
         return *this;
@@ -108,7 +107,7 @@ class shadow_ray
     const rtc::scene_model* scene{};
     const rtc::light* light{};
     rt_serv* rt{};
-    rtc::math_ray current_ray{};
+    const rtc::math_ray& current_ray{};
     rtc_float current_ray_length{};
     value_type current{};
     bool active{};
@@ -130,7 +129,7 @@ class shadow_ray
   auto trace(rt_serv& rt) const -> sample
   {
     sample result{};
-    rtc::math_ray current_ray{direction_to_light, origin};
+    auto current_ray{ray};
     auto current_ray_length = ray_length;
     const rtc::surface_material* material{};
 
@@ -171,8 +170,7 @@ class shadow_ray
   }
 
   const rtc::scene_model* scene{};
-  rtc::math_point origin{};
-  rtc::math_vector direction_to_light{};
+  const rtc::math_ray& ray{};
   const rtc::light* light{};
   rtc_float ray_length{};
 };
