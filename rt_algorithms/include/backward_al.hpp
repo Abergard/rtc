@@ -40,15 +40,12 @@ struct backward_al
       if (auto object = future_intersect.get())
       {
         optional_color reflect{}, refract{};
-#if 1
+
         if (auto r = object.refract(ray, *scene, wasRefracted))
           refract = make_color<depth - 1>(r.value(), background, rt, object.attribute(*scene).oneSheet == true);
-#endif
 
-#if 1
         if (auto r = object.reflect(ray, *scene))
           reflect = make_color<depth - 1>(r.value(), background, rt);
-#endif
 
         return rt_s.compute_color(ray, object, reflect, refract, rt);
       }
