@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -33,9 +34,51 @@ inline auto transmission_weight(const rtc::surface_material& material) noexcept 
   return saturated(material.kts);
 }
 
-inline auto local_weight(const rtc::surface_material& material) noexcept -> rtc_float
+inline auto fresnel_factor(const rtc::surface_material& material,
+                           const rtc::math_ray& ray,
+                           const rtc::math_vector& normal) noexcept -> rtc_float
 {
-  return std::max(0.0F, 1.0F - reflection_weight(material) - transmission_weight(material));
+  const auto eta = std::max(material.eta, std::numeric_limits<rtc_float>::epsilon());
+  const auto f0_base = (eta - 1.0F) / (eta + 1.0F);
+  const auto f0 = f0_base * f0_base;
+  const auto incident = normalize(ray.direction());
+  const auto n = normalize(normal);
+  const auto cos_theta = saturated(std::fabs(dot(incident, n)));
+  const auto one_minus_cos = 1.0F - cos_theta;
+
+  return f0 + (1.0F - f0) * rtc::pow(one_minus_cos, 5);
+}
+
+inline auto fresnel_reflection_scale(const rtc::surface_material& material,
+                                     const rtc_float fresnel) noexcept -> rtc_float
+{
+  const auto kf = saturated(material.kf);
+  return (1.0F - kf) + kf * fresnel;
+}
+
+inline auto fresnel_transmission_scale(const rtc::surface_material& material,
+                                       const rtc_float fresnel) noexcept -> rtc_float
+{
+  const auto kf = saturated(material.kf);
+  return (1.0F - kf) + kf * (1.0F - fresnel);
+}
+
+inline auto reflection_weight(const rtc::surface_material& material, const rtc_float fresnel) noexcept -> rtc_float
+{
+  if (material.mirror)
+    return 1.0F;
+
+  return material.reflection ? saturated(material.ks) * fresnel_reflection_scale(material, fresnel) : 0.0F;
+}
+
+inline auto transmission_weight(const rtc::surface_material& material, const rtc_float fresnel) noexcept -> rtc_float
+{
+  return transmission_weight(material) * fresnel_transmission_scale(material, fresnel);
+}
+
+inline auto remaining_weight(const rtc_float used_weight) noexcept -> rtc_float
+{
+  return std::max(0.0F, 1.0F - used_weight);
 }
 }  // namespace detail
 
@@ -57,7 +100,7 @@ struct distributed_ray_tracing_shadows
     const auto n = object.normal_vector(ray, *scene);
 
 #if 1
-    rtc::color illumination{m.ka * scene->ambient};
+    auto local_color = (m.ka * object.color(*scene)) * scene->ambient + m.selfLuminance * object.color(*scene);
     if (m.shadowfall)
     {
       for (const auto& light : scene->lights)
@@ -67,15 +110,16 @@ struct distributed_ray_tracing_shadows
         // rtc::shadow_ray<rtc::color> sr{illumination};
 
         const auto l = object.hit_point(ray) - light.position;
+        const auto nl = normalize(l);
+        const auto dot_ln = std::max(0.0F, dot(n, nl));
+        const auto dot_back_ln = std::max(0.0F, dot(-n, nl));
 
-        if (cos(n, l) > 0)
+        if (dot_ln > 0.0F || (m.ktd > 0.0F && dot_back_ln > 0.0F))
         {
           const auto [i, f] = get_intersection_with_light_ray(object, ray, -l, light, rt);
 
           if (i.is_none() || !(i < intersection(_, 1.0F)))
           {
-            const auto nl = normalize(l);
-            const auto dot_ln = std::max(0.0F, dot(n, nl));
             auto specular = 0.0F;
             if (m.ks > 0.0F)
             {
@@ -87,7 +131,9 @@ struct distributed_ray_tracing_shadows
             }
             const auto d = inverse_square_factor(light, l);
 
-            illumination += f * ((m.kd * dot_ln + specular) / d) * light.light_color;
+            local_color += (f / d) *
+                           ((m.kd * dot_ln + m.ktd * dot_back_ln) * (object.color(*scene) * light.light_color) +
+                            specular * light.light_color);
           }
         }
       }
@@ -96,15 +142,21 @@ struct distributed_ray_tracing_shadows
     rtc::color illumination{1, 1, 1};
 #endif
 
-    rtc::color r = rtc::clamp(object.color(*scene) * illumination + m.selfLuminance * object.color(*scene));
+    const auto fresnel = detail::fresnel_factor(m, ray, n);
+    const auto reflected_weight = reflected ? detail::reflection_weight(m, fresnel) : 0.0F;
+    const auto refracted_weight =
+        refracted ? std::min(detail::transmission_weight(m, fresnel), detail::remaining_weight(reflected_weight)) : 0.0F;
+    const auto local_weight = detail::remaining_weight(reflected_weight + refracted_weight);
 
-    if (refracted)
-      r = detail::local_weight(m) * r + detail::transmission_weight(m) * refracted.value();
+    auto r = local_weight * local_color;
 
     if (reflected)
-      r = (1.0F - detail::reflection_weight(m)) * r + detail::reflection_weight(m) * reflected.value();
+      r += reflected_weight * reflected.value();
 
-    return r;
+    if (refracted)
+      r += refracted_weight * refracted.value();
+
+    return rtc::clamp(r);
   }
 
  private:

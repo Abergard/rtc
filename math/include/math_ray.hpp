@@ -15,14 +15,14 @@ class math_ray
   constexpr math_ray() noexcept = default;
   constexpr math_ray(const rtc::math_vector& direction,
                      const rtc::math_point& start) noexcept
-      : u{direction}, p{start + eps}
+      : u{direction}, p{start}
   {
     //rtc::normalize(u);
   }
 
   constexpr auto operator[](const rtc_float t) const noexcept -> rtc::math_point
   {
-    return u * t + p;
+    return u * (t + eps) + p;
   }
 
   [[nodiscard]] constexpr auto origin() const noexcept -> const rtc::math_point&
