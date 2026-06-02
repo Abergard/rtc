@@ -40,11 +40,11 @@ auto intersection::normal_vector(const rtc::math_ray& r,
     const auto& p3 = data.points[tr.vertex_c()];
 
     auto n = normalize(cross(p1 - p2, p3 - p2));
-    auto v = normalize(-r.direction());
+    // auto v = -r.direction();
 
-    const auto cos_n = dot(n, v);
-    if(cos_n < 0.0F)
-       n = -n;
+    // const auto cos_n = dot(n, v);
+    // if(cos_n < 0.0F)
+    //    n = -n;
 
     //data.normals[std::get<0>(object.value())] = n;
     return n;
@@ -84,7 +84,7 @@ rtc_pure auto intersection::reflect(const math_ray& r, const rtc::scene_model& s
   if(is_reflective(sc))
   {
     const auto n = normal_vector(r, sc);
-    const auto l = normalize(r.direction());
+    const auto l = r.direction();
 
     return {{l - 2.0F * dot(l, n) * n , hit_point(r) }};
   }
@@ -92,7 +92,7 @@ rtc_pure auto intersection::reflect(const math_ray& r, const rtc::scene_model& s
   return std::nullopt;
 }
 
-rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& sc) const noexcept -> std::optional<math_ray>
+rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& sc, bool wasRefracted = false) const noexcept -> std::optional<math_ray>
 {
   // if(is_refractive(sc))
   // {
@@ -122,11 +122,11 @@ rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& s
 {
     const auto& material = attribute(sc);
 
-    auto n = normalize(geometric_normal(*this, sc));
-    const auto incident = normalize(r.direction());
+    auto n = normalize(-geometric_normal(*this, sc));
+    const auto incident = r.direction();
 
     // eta = n1 / n2
-    rtc_float eta = 1.0F / material.eta;
+    rtc_float eta = wasRefracted == false ? 1.0F / material.eta : material.eta;
 
     // Jeżeli dot(incident, n) > 0, to promień jest po "wewnętrznej"
     // stronie powierzchni i wychodzi z obiektu.

@@ -66,11 +66,11 @@ struct distributed_ray_tracing_shadows
         //      Illumination
         // rtc::shadow_ray<rtc::color> sr{illumination};
 
-        const auto l = light.position - object.hit_point(ray);
+        const auto l = object.hit_point(ray) - light.position;
 
         if (cos(n, l) > 0)
         {
-          const auto [i, f] = get_intersection_with_light_ray(object, ray, l, light, rt);
+          const auto [i, f] = get_intersection_with_light_ray(object, ray, -l, light, rt);
 
           if (i.is_none() || !(i < intersection(_, 1.0F)))
           {

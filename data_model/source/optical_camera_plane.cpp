@@ -16,7 +16,10 @@ optical_camera_plane::optical_camera_plane(const rtc::camera& c) noexcept
 auto optical_camera_plane::emit_ray(std::uint32_t x, std::uint32_t y) const noexcept -> rtc::math_ray
 {
   const rtc::math_point screen_point{x * x_vec + y * y_vec + corner};
-  return {screen_point - view_point, view_point};
+  rtc::math_ray r{screen_point - view_point, view_point};
+
+  rtc::normalize(r.direction());
+  return r;
 }
 
 }  // namespace rtc

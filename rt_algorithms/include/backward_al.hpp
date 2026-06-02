@@ -27,7 +27,10 @@ struct backward_al
   auto postwork(rtc::screen_surface&) {}
 
   template <std::size_t depth = 10, typename rt_serv>
-  [[nodiscard]] auto make_color(const rtc::math_ray& ray, const rtc::color& background, rt_serv& rt) noexcept
+  [[nodiscard]] auto make_color(const rtc::math_ray& ray, 
+                                const rtc::color& background, 
+                                rt_serv& rt,
+                                bool wasRefracted = false) noexcept
       -> rtc::color
   {
     if constexpr (depth > 0)
@@ -38,8 +41,8 @@ struct backward_al
       {
         optional_color reflect{}, refract{};
 #if 1
-        if (auto r = object.refract(ray, *scene))
-          refract = make_color<depth - 1>(r.value(), background, rt);
+        if (auto r = object.refract(ray, *scene, wasRefracted))
+          refract = make_color<depth - 1>(r.value(), background, rt, object.attribute(*scene).oneSheet == true);
 #endif
 
 #if 1

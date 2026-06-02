@@ -38,7 +38,7 @@ class intersection
 
   rtc_pure [[nodiscard]] auto reflect(const math_ray&, const rtc::scene_model&) const noexcept
       -> std::optional<math_ray>;
-  rtc_pure [[nodiscard]] auto refract(const math_ray&, const rtc::scene_model&) const noexcept
+  rtc_pure [[nodiscard]] auto refract(const math_ray&, const rtc::scene_model&, bool) const noexcept
       -> std::optional<math_ray>;
 
   [[nodiscard]] auto hit_point(const math_ray&) const noexcept -> math_point;

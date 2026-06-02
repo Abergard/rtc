@@ -5,14 +5,19 @@
 
 namespace rtc
 {
+
+
+constexpr auto eps{0.000001f};
+
 class math_ray
 {
  public:
   constexpr math_ray() noexcept = default;
   constexpr math_ray(const rtc::math_vector& direction,
                      const rtc::math_point& start) noexcept
-      : u{direction}, p{start}
+      : u{direction}, p{start + eps}
   {
+    //rtc::normalize(u);
   }
 
   constexpr auto operator[](const rtc_float t) const noexcept -> rtc::math_point

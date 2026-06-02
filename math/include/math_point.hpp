@@ -54,6 +54,11 @@ constexpr inline auto operator+(const math_point& p1, const math_point& p2) noex
   return {p1.x() + p2.x(), p1.y() + p2.y(), p1.z() + p2.z()};
 }
 
+constexpr inline auto operator+(const math_point& p1, const float p2) noexcept -> math_point
+{
+  return {p1.x() + p2, p1.y() + p2, p1.z() + p2};
+}
+
 constexpr inline auto operator*(const rtc_float c, const math_point& p2) noexcept -> math_point
 {
   return {c * p2.x(), c * p2.y(), c * p2.z()};
