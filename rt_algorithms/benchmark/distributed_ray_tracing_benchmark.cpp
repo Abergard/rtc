@@ -188,6 +188,50 @@ void BM_ShadowRayTraceTransparentBlocker(benchmark::State& state)
 
   state.counters["trace_calls"] = benchmark::Counter(static_cast<double>(trace_calls), benchmark::Counter::kAvgIterations);
 }
+
+void BM_ShadowRayIteratorUnblocked(benchmark::State& state)
+{
+  auto& ctx = context();
+  fake_rt_service rt{{rtc::no_intersection}};
+  std::size_t trace_calls{};
+
+  for (auto _ : state)
+  {
+    rt.reset();
+    rtc::shadow_ray ray{*ctx.scene, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 10.0F}, ctx.scene->lights.front()};
+    rtc::shadow_ray::sample result{};
+    const auto last = ray.end(rt);
+    for (auto it = ray.begin(rt); it != last; ++it)
+      result = *it;
+
+    trace_calls += rt.trace_calls;
+    benchmark::DoNotOptimize(result);
+  }
+
+  state.counters["trace_calls"] = benchmark::Counter(static_cast<double>(trace_calls), benchmark::Counter::kAvgIterations);
+}
+
+void BM_ShadowRayIteratorTransparentBlocker(benchmark::State& state)
+{
+  auto& ctx = context();
+  fake_rt_service rt{{rtc::intersection{1, 0.5F}, rtc::no_intersection}};
+  std::size_t trace_calls{};
+
+  for (auto _ : state)
+  {
+    rt.reset();
+    rtc::shadow_ray ray{*ctx.scene, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 10.0F}, ctx.scene->lights.front()};
+    rtc::shadow_ray::sample result{};
+    const auto last = ray.end(rt);
+    for (auto it = ray.begin(rt); it != last; ++it)
+      result = *it;
+
+    trace_calls += rt.trace_calls;
+    benchmark::DoNotOptimize(result);
+  }
+
+  state.counters["trace_calls"] = benchmark::Counter(static_cast<double>(trace_calls), benchmark::Counter::kAvgIterations);
+}
 }  // namespace
 
 BENCHMARK(BM_ComputeColorShadowfallDisabled);
@@ -196,5 +240,7 @@ BENCHMARK(BM_ComputeColorOpaqueBlocker);
 BENCHMARK(BM_ComputeColorTransparentBlocker);
 BENCHMARK(BM_ShadowRayTraceUnblocked);
 BENCHMARK(BM_ShadowRayTraceTransparentBlocker);
+BENCHMARK(BM_ShadowRayIteratorUnblocked);
+BENCHMARK(BM_ShadowRayIteratorTransparentBlocker);
 
 BENCHMARK_MAIN();

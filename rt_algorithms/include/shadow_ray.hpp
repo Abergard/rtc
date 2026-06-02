@@ -21,6 +21,10 @@ class shadow_ray
     rtc_float transmittance{1.0F};
   };
 
+  struct sentinel
+  {
+  };
+
   shadow_ray(const rtc::scene_model& scene,
              const rtc::math_point& origin,
              const rtc::math_vector& direction_to_light,
@@ -34,7 +38,8 @@ class shadow_ray
              const rtc::math_vector& direction_to_light,
              const rtc::light& source,
              rtc_float direction_to_light_length) noexcept
-      : scene{&scene}, ray{direction_to_light, origin}, light{&source}, ray_length{direction_to_light_length}
+      : scene{&scene}, origin{origin}, direction_to_light{direction_to_light}, light{&source},
+        ray_length{direction_to_light_length}
   {
   }
 
@@ -54,23 +59,28 @@ class shadow_ray
     using iterator_category = std::input_iterator_tag;
 
     iterator() noexcept = default;
-    iterator(const shadow_ray& owner, rt_serv& rt) : owner{&owner}, rt{&rt} { trace_next(); }
+    iterator(const shadow_ray& owner, rt_serv& rt)
+        : scene{owner.scene}, light{owner.light}, rt{&rt}, current_ray{owner.direction_to_light, owner.origin},
+          current_ray_length{owner.ray_length}, active{true}
+    {
+      current.object = shadow_ray::trace_one(rt, current_ray);
+    }
 
     auto operator*() const noexcept -> reference { return current; }
     auto operator->() const noexcept -> pointer { return &current; }
 
     auto operator++() -> iterator&
     {
-      if (!owner || done)
+      if (!active)
         return *this;
 
       if (current.object.is_none() || current.object.hit_value() >= 1.0F)
       {
-        done = true;
+        active = false;
         return *this;
       }
 
-      const auto& material = current.object.attribute(*owner->scene);
+      const auto& material = current.object.attribute(*scene);
       const auto transmittance = shadow_transmittance(material);
       if (!material.shadowcast || transmittance > 0.0F)
       {
@@ -79,37 +89,29 @@ class shadow_ray
         if (material.shadowcast && transmittance < 1.0F)
           current.transmittance *= std::pow(transmittance, current_ray_length * hit_value);
 
-        current_ray = {owner->light->position - ray_hit, ray_hit};
+        current_ray = {light->position - ray_hit, ray_hit};
         current_ray_length *= std::max(0.0F, 1.0F - hit_value);
-        trace_next();
+        current.object = shadow_ray::trace_one(*rt, current_ray);
         return *this;
       }
 
-      done = true;
+      active = false;
       return *this;
     }
 
-    auto operator!=(const iterator& other) const noexcept -> bool { return done != other.done; }
+    auto operator!=(sentinel) const noexcept -> bool { return active; }
+    auto operator==(sentinel) const noexcept -> bool { return !active; }
+    auto operator!=(const iterator& other) const noexcept -> bool { return active != other.active; }
     auto operator==(const iterator& other) const noexcept -> bool { return !(*this != other); }
 
    private:
-    const shadow_ray* owner{};
+    const rtc::scene_model* scene{};
+    const rtc::light* light{};
     rt_serv* rt{};
     rtc::math_ray current_ray{};
     rtc_float current_ray_length{};
     value_type current{};
-    bool done{true};
-
-    auto trace_next() -> void
-    {
-      if (done)
-      {
-        current_ray = owner->ray;
-        current_ray_length = owner->ray_length;
-      }
-      current.object = shadow_ray::trace_one(*rt, current_ray);
-      done = false;
-    }
+    bool active{};
   };
 
   template <typename rt_serv>
@@ -119,7 +121,7 @@ class shadow_ray
   }
 
   template <typename rt_serv>
-  auto end(rt_serv&) const noexcept -> iterator<rt_serv>
+  auto end(rt_serv&) const noexcept -> sentinel
   {
     return {};
   }
@@ -128,7 +130,7 @@ class shadow_ray
   auto trace(rt_serv& rt) const -> sample
   {
     sample result{};
-    auto current_ray = ray;
+    rtc::math_ray current_ray{direction_to_light, origin};
     auto current_ray_length = ray_length;
     const rtc::surface_material* material{};
 
@@ -169,7 +171,8 @@ class shadow_ray
   }
 
   const rtc::scene_model* scene{};
-  const rtc::math_ray& ray;
+  rtc::math_point origin{};
+  rtc::math_vector direction_to_light{};
   const rtc::light* light{};
   rtc_float ray_length{};
 };
