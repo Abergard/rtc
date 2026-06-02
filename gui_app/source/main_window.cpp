@@ -14,6 +14,7 @@
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <boost/property_tree/xml_parser.hpp>
@@ -172,6 +173,20 @@ void MainWindow::loadScene()
   if (path.isEmpty())
     return;
 
+  loadSceneFromPath(path);
+}
+
+auto MainWindow::openSceneAndRender(const QString& path) -> bool
+{
+  if (!loadSceneFromPath(path))
+    return false;
+
+  QTimer::singleShot(0, this, [this] { startRender(); });
+  return true;
+}
+
+auto MainWindow::loadSceneFromPath(const QString& path) -> bool
+{
   try
   {
     const QFileInfo fileInfo{path};
@@ -200,10 +215,12 @@ void MainWindow::loadScene()
                                  .arg(static_cast<qulonglong>(scene->triangles.size()))
                                  .arg(static_cast<qulonglong>(scene->lights.size()))
                                  .arg(loadedSceneIsBrs_ ? "" : " (view/edit only; Save BRS is disabled)"));
+    return true;
   }
   catch (const std::exception& e)
   {
     statusBar()->showMessage(QString("Load failed: %1").arg(e.what()));
+    return false;
   }
 }
 

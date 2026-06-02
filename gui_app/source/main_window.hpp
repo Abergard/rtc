@@ -18,10 +18,12 @@ class MainWindow final : public QMainWindow
 {
  public:
   explicit MainWindow(QWidget* parent = nullptr);
+  auto openSceneAndRender(const QString& path) -> bool;
 
  private:
   void closeEvent(QCloseEvent* event) override;
   void loadScene();
+  auto loadSceneFromPath(const QString& path) -> bool;
   void startRender();
   void pollRender();
   void flipSelectedTriangle();
