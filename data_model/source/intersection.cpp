@@ -204,6 +204,11 @@ auto intersection::operator-(const intersection& i) const noexcept -> rtc_float
   return std::get<1>(i.object.value()) - std::get<1>(object.value());
 }
 
+auto intersection::triangle_index() const noexcept -> std::uint32_t
+{
+  return std::get<0>(object.value());
+}
+
 auto intersection::hit_value() const noexcept -> rtc_float
 {
   return std::get<1>(object.value());

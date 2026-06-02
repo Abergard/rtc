@@ -30,6 +30,7 @@ class intersection
   auto operator!=(const intersection&) const noexcept -> bool;
   auto operator<(const rtc::intersection&) const noexcept -> bool;
   auto operator-(const intersection&) const noexcept -> rtc_float;
+  [[nodiscard]] auto triangle_index() const noexcept -> std::uint32_t;
   [[nodiscard]] auto hit_value() const noexcept -> rtc_float;
 
   friend auto operator<<(std::ostream&, intersection&) noexcept -> std::ostream&;

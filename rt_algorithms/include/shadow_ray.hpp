@@ -1,17 +1,27 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 
 #include "intersection.hpp"
 #include "light.hpp"
 #include "math_ray.hpp"
-#include "rtc_log.hpp"
 #include "scene_model.hpp"
+#include "utility.hpp"
+
+#ifndef RTC_SHADOW_RAY_DIAGNOSTICS
+#define RTC_SHADOW_RAY_DIAGNOSTICS 0
+#endif
+
+#if RTC_SHADOW_RAY_DIAGNOSTICS
+#include <atomic>
+
+#include "rtc_log.hpp"
+#endif
 
 namespace rtc
 {
@@ -101,7 +111,8 @@ class shadow_ray
 
         const auto next_direction = light->position - ray_hit;
         current_ray_length = remaining_ray_length(current_ray_length, hit_value);
-        current_ray = make_ray_to_light(*scene, ray_hit, light->position, next_direction, current.object.triangle(*scene));
+        current_ray =
+            make_ray_to_light(ray_hit, light->position, next_direction, triangle_normal(*scene, current.object.triangle_index()));
         current.object = shadow_ray::trace_one(*rt, current_ray);
         return *this;
       }
@@ -139,35 +150,36 @@ class shadow_ray
   }
 
   template <typename rt_serv>
-  auto trace(rt_serv& rt) const -> sample
+  rtc_hot auto trace(rt_serv& rt) const -> sample
   {
     constexpr std::uint32_t max_transparent_hits{64};
     constexpr std::uint32_t max_same_object_skips{8};
     sample result{};
     auto current_ray{ray};
     auto current_ray_length = ray_length;
-    const rtc::surface_material* material{};
     std::uint32_t transparent_hits{};
-    const rtc::triangle3d* previous_hit_object{};
+    auto previous_hit_index = std::numeric_limits<std::uint32_t>::max();
+    rtc::math_vector previous_hit_normal{};
     std::uint32_t same_object_hits{};
 
-    do
+    for (;;)
     {
-      if (transparent_hits++ >= max_transparent_hits)
+      if (rtc_unlikely(transparent_hits++ >= max_transparent_hits))
         return result;
 
       result.object = trace_one(rt, current_ray);
-      if (result.object.is_none() || result.object.hit_value() >= 1.0F)
-         return result;
+      if (rtc_likely(result.object.is_none() || result.object.hit_value() >= 1.0F))
+        return result;
 
-      const auto* current_hit_object = &result.object.triangle(*scene);
-      if (current_hit_object == previous_hit_object)
+      const auto hit_index = result.object.triangle_index();
+      const auto hit_value = result.object.hit_value();
+      if (rtc_unlikely(hit_index == previous_hit_index))
       {
         ++same_object_hits;
         log_same_object_issue(
             current_ray, result.object, current_ray_length, same_object_hits, result.transmittance, "skipped");
 
-        if (same_object_hits > max_same_object_skips)
+        if (rtc_unlikely(same_object_hits > max_same_object_skips))
         {
           log_same_object_issue(
               current_ray, result.object, current_ray_length, same_object_hits, result.transmittance, "gave-up");
@@ -175,36 +187,30 @@ class shadow_ray
           return result;
         }
 
-        const auto hit_value = result.object.hit_value();
         const auto ray_hit = point_at(current_ray, hit_value);
         const auto next_direction = light->position - ray_hit;
-        current_ray = make_ray_to_light(*scene, ray_hit, light->position, next_direction, *current_hit_object);
+        current_ray = make_ray_to_light(ray_hit, light->position, next_direction, previous_hit_normal);
         current_ray_length = remaining_ray_length(current_ray_length, hit_value);
         continue;
       }
-      else
-      {
-        previous_hit_object = current_hit_object;
-        same_object_hits = 1U;
-      }
 
-      material = &result.object.attribute(*scene);
-      const auto transmittance = shadow_transmittance(*material);
-      if (material->shadowcast && transmittance <= 0.0F)
+      previous_hit_index = hit_index;
+      previous_hit_normal = triangle_normal(*scene, hit_index);
+      same_object_hits = 1U;
+
+      const auto& material = scene->materials[scene->material_id[hit_index]];
+      const auto transmittance = shadow_transmittance(material);
+      if (rtc_likely(material.shadowcast && transmittance <= 0.0F))
         return result;
 
-      const auto hit_value = result.object.hit_value();
       const auto ray_hit = point_at(current_ray, hit_value);
-      if (material->shadowcast && transmittance < 1.0F)
+      if (rtc_unlikely(material.shadowcast && transmittance < 1.0F))
         result.transmittance *= std::pow(transmittance, current_ray_length * hit_value);
 
       const auto next_direction = light->position - ray_hit;
-      current_ray = make_ray_to_light(*scene, ray_hit, light->position, next_direction, *current_hit_object);
+      current_ray = make_ray_to_light(ray_hit, light->position, next_direction, previous_hit_normal);
       current_ray_length = remaining_ray_length(current_ray_length, hit_value);
-    } while (result.object.is_present() && (!material->shadowcast || shadow_transmittance(*material) > 0.0F) &&
-             result.object.hit_value() < 1.0F);
-
-    return result;
+    }
   }
 
  private:
@@ -232,8 +238,12 @@ class shadow_ray
     return origin + direction * ray_origin_bias;
   }
 
-  static auto triangle_normal(const rtc::scene_model& scene, const rtc::triangle3d& triangle) noexcept -> rtc::math_vector
+  static auto triangle_normal(const rtc::scene_model& scene, const std::uint32_t triangle_index) noexcept -> rtc::math_vector
   {
+    if (triangle_index < scene.normals.size() && rtc::lengthSQ(scene.normals[triangle_index]) > 0.0F)
+      return scene.normals[triangle_index];
+
+    const auto& triangle = scene.triangles[triangle_index];
     const auto& p1 = scene.points[triangle.vertex_a()];
     const auto& p2 = scene.points[triangle.vertex_b()];
     const auto& p3 = scene.points[triangle.vertex_c()];
@@ -243,9 +253,16 @@ class shadow_ray
   static auto offset_origin(const rtc::scene_model& scene,
                             const rtc::math_point& origin,
                             const rtc::math_vector& direction,
-                            const rtc::triangle3d& triangle) noexcept -> rtc::math_point
+                            const std::uint32_t triangle_index) noexcept -> rtc::math_point
   {
-    const auto normal = triangle_normal(scene, triangle);
+    const auto normal = triangle_normal(scene, triangle_index);
+    return offset_origin(origin, direction, normal);
+  }
+
+  static auto offset_origin(const rtc::math_point& origin,
+                            const rtc::math_vector& direction,
+                            const rtc::math_vector& normal) noexcept -> rtc::math_point
+  {
     const auto normal_direction = rtc::dot(normal, direction) >= 0.0F ? normal : -normal;
     return offset_origin(origin, direction) + normal_direction * surface_normal_bias;
   }
@@ -262,9 +279,18 @@ class shadow_ray
                                 const rtc::math_point& origin,
                                 const rtc::math_point& light_position,
                                 const rtc::math_vector& direction_to_light,
-                                const rtc::triangle3d& triangle) noexcept -> rtc::math_ray
+                                const std::uint32_t triangle_index) noexcept -> rtc::math_ray
   {
-    const auto biased_origin = offset_origin(scene, origin, direction_to_light, triangle);
+    const auto biased_origin = offset_origin(scene, origin, direction_to_light, triangle_index);
+    return {light_position - biased_origin, biased_origin};
+  }
+
+  static auto make_ray_to_light(const rtc::math_point& origin,
+                                const rtc::math_point& light_position,
+                                const rtc::math_vector& direction_to_light,
+                                const rtc::math_vector& normal) noexcept -> rtc::math_ray
+  {
+    const auto biased_origin = offset_origin(origin, direction_to_light, normal);
     return {light_position - biased_origin, biased_origin};
   }
 
@@ -280,6 +306,7 @@ class shadow_ray
                              const rtc_float transmittance,
                              const char* action) const -> void
   {
+#if RTC_SHADOW_RAY_DIAGNOSTICS
     constexpr auto max_logged_issues{64U};
     static std::atomic_uint logged_issues{};
 
@@ -308,12 +335,24 @@ class shadow_ray
             << " ray_origin=" << current_ray.origin()
             << " ray_direction=" << current_ray.direction()
             << " light_position=" << light->position;
+#else
+    (void)current_ray;
+    (void)object;
+    (void)current_ray_length;
+    (void)same_object_hits;
+    (void)transmittance;
+    (void)action;
+#endif
   }
 
+#if RTC_SHADOW_RAY_DIAGNOSTICS
   auto triangle_normal_dot_ray(const rtc::triangle3d& triangle, const rtc::math_ray& current_ray) const noexcept -> rtc_float
   {
-    return rtc::dot(triangle_normal(*scene, triangle), rtc::normalize(current_ray.direction()));
+    const auto* triangle_data = scene->triangles.data();
+    const auto triangle_index = static_cast<std::uint32_t>(&triangle - triangle_data);
+    return rtc::dot(triangle_normal(*scene, triangle_index), rtc::normalize(current_ray.direction()));
   }
+#endif
 
   const rtc::scene_model* scene{};
   rtc::math_ray ray{};

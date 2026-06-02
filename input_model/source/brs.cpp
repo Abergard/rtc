@@ -9,6 +9,17 @@
 
 namespace rtc
 {
+namespace
+{
+auto triangle_normal(const rtc::scene_model::points_type& points, const rtc::triangle3d& triangle) noexcept -> rtc::math_vector
+{
+  const auto& p1 = points[triangle.vertex_a()];
+  const auto& p2 = points[triangle.vertex_b()];
+  const auto& p3 = points[triangle.vertex_c()];
+  return rtc::normalize(rtc::cross(p1 - p2, p3 - p2));
+}
+}  // namespace
+
 brs::brs(const std::string& files)
 {
   using namespace boost::property_tree;
@@ -82,7 +93,9 @@ void brs::load_triangles(const boost::property_tree::ptree& tree)
     }
   }
 
-  normals = std::vector<rtc::math_vector>(triangles.size());
+  normals.resize(triangles.size());
+  for (std::size_t i{}; i < triangles.size(); ++i)
+    normals[i] = triangle_normal(points, triangles[i]);
 }
 
 void brs::load_lights(const boost::property_tree::ptree& tree)
