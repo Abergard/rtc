@@ -84,9 +84,9 @@ rtc_pure auto intersection::reflect(const math_ray& r, const rtc::scene_model& s
   if(is_reflective(sc))
   {
     const auto n = normal_vector(r, sc);
-    const auto l = normalize(-r.direction());
+    const auto l = normalize(r.direction());
 
-    return {{ 2.0F * dot(l, n) * n - l, hit_point(r) }};
+    return {{l - 2.0F * dot(l, n) * n , hit_point(r) }};
   }
 
   return std::nullopt;
@@ -94,29 +94,74 @@ rtc_pure auto intersection::reflect(const math_ray& r, const rtc::scene_model& s
 
 rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& sc) const noexcept -> std::optional<math_ray>
 {
-  if(is_refractive(sc))
-  {
-    const auto& material = attribute(sc);
-    auto eta{1.0F / material.eta};
-    auto n{geometric_normal(*this, sc)};
-    const auto incident{normalize(r.direction())};
+  // if(is_refractive(sc))
+  // {
+  //   const auto& material = attribute(sc);
+  //   auto eta{1.0F / material.eta};
+  //   auto n{geometric_normal(*this, sc)};
+  //   const auto incident{normalize(r.direction())};
 
+  //   // if(dot(incident, n) > 0.0F)
+  //   // {
+  //   //   n = -n;
+  //   //   eta = material.eta;
+  //   // }
+
+  //   const auto cosThetaI{std::clamp(dot(-incident, n), 0.0F, 1.0F)};
+  //   const auto sin2ThetaI{std::max<rtc_float>(0.0F, 1.0F - cosThetaI * cosThetaI)};
+  //   const auto sin2ThetaT{eta * eta * sin2ThetaI};
+
+  //   if(sin2ThetaT < 1)
+  //   {
+  //     const auto cosThetaT = std::sqrt(1.0F - sin2ThetaT);
+  //     return {{eta * incident + (eta * cosThetaI - cosThetaT) * n, hit_point(r)}};
+  //   }
+  // }
+
+  if(is_refractive(sc))
+{
+    const auto& material = attribute(sc);
+
+    auto n = normalize(geometric_normal(*this, sc));
+    const auto incident = normalize(r.direction());
+
+    // eta = n1 / n2
+    rtc_float eta = 1.0F / material.eta;
+
+    // Jeżeli dot(incident, n) > 0, to promień jest po "wewnętrznej"
+    // stronie powierzchni i wychodzi z obiektu.
     if(dot(incident, n) > 0.0F)
     {
-      n = -n;
-      eta = material.eta;
+        n = -n;
+        eta = material.eta;
     }
 
-    const auto cosThetaI{std::clamp(dot(-incident, n), 0.0F, 1.0F)};
-    const auto sin2ThetaI{std::max<rtc_float>(0.0F, 1.0F - cosThetaI * cosThetaI)};
-    const auto sin2ThetaT{eta * eta * sin2ThetaI};
+    const auto cosThetaI =
+        std::clamp(dot(-incident, n), 0.0F, 1.0F);
 
-    if(sin2ThetaT < 1)
+    const auto sin2ThetaI =
+        std::max<rtc_float>(0.0F, 1.0F - cosThetaI * cosThetaI);
+
+    const auto k =
+        1.0F - eta * eta * sin2ThetaI;
+
+    if(k >= 0.0F)
     {
-      const auto cosThetaT = std::sqrt(1.0F - sin2ThetaT);
-      return {{eta * incident + (eta * cosThetaI - cosThetaT) * n, hit_point(r)}};
+        const auto cosThetaT = std::sqrt(k);
+
+        const auto refracted =
+            normalize(eta * incident + (eta * cosThetaI - cosThetaT) * n);
+
+        return {{refracted, hit_point(r)}};
     }
-  }
+
+    // Total internal reflection.
+    // Jeżeli promień nie może się załamać, powinien się odbić.
+    const auto reflected =
+        normalize(incident - 2.0F * dot(incident, n) * n);
+
+    return {{reflected, hit_point(r)}};
+}
 
   return std::nullopt;
 }

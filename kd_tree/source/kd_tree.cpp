@@ -178,7 +178,7 @@ auto kd_tree::build_tree(rtc::bounding_box node_bbox,
     return index;
   };
 
-  if (tr.size() <= 1 || !depth)
+  if (tr.size() <= 2 || !depth)
     return create_leaf_node();
 
   const auto [axis, offset, cost, old_cost] =
@@ -187,7 +187,7 @@ auto kd_tree::build_tree(rtc::bounding_box node_bbox,
   bad_refines += (cost > old_cost) ? 1 : 0;
 
   auto no_use_of_spliting_node = [old_cost = old_cost, cost = cost, axis = axis, &bad_refines, &tr] {
-    return ((cost > 4 * old_cost) && (tr.size() < 16)) || (axis == -1) || (bad_refines == 3);
+    return ((cost > 4 * old_cost) && (tr.size() < 8)) || (axis == -1) || (bad_refines == 3);
   };
 
   if (no_use_of_spliting_node())

@@ -118,25 +118,23 @@ struct distributed_ray_tracing_shadows
                                        _rt& rt) const -> std::tuple<intersection, float>
   {
     rtc::math_ray shadow_ray{L, object.hit_point(ray)};
-    rtc::intersection intersect{}, priv{object};
+    rtc::intersection intersect{};
     rtc_float acc{1};
-    const auto length = rtc::length(L);
 
     do
     {
       if (intersect)
       {
         const auto ray_hit = intersect.hit_point(shadow_ray);
+        const auto segment_length = rtc::length(ray_hit - shadow_ray.origin());
         shadow_ray = {light.position - ray_hit, ray_hit};
         const auto& material = intersect.attribute(*scene);
 
         if (material.shadowcast)
         {
           const auto transparent_shadow = detail::saturated(0.5F * (material.kts + material.ktd));
-          const auto segment_length = length * (intersect - priv);
           acc *= std::pow(transparent_shadow, segment_length);
         }
-        priv = intersect;
       }
 
       intersect = rt.trace_ray(shadow_ray).get();
