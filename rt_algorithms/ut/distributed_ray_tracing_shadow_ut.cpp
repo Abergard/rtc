@@ -143,8 +143,8 @@ TEST(distributed_ray_tracing_shadow_ut, object_behind_light_does_not_block_light
 TEST(distributed_ray_tracing_shadow_ut, transparent_object_between_surface_and_light_attenuates_light)
 {
   auto scene = shadow_scene();
-  scene->materials[1].kts = 0.5F;
-  scene->materials[1].ktd = 0.5F;
+  scene->materials[1].kts = 0.25F;
+  scene->materials[1].ktd = 0.25F;
   fake_rt_service rt{{rtc::intersection{1, 0.5F}, rtc::no_intersection}};
 
   const auto color = lit_receiver_color(scene, rt);
@@ -152,6 +152,31 @@ TEST(distributed_ray_tracing_shadow_ut, transparent_object_between_surface_and_l
   ASSERT_THAT(color.red(), FloatNear(0.03125F, 0.00001F));
   ASSERT_THAT(color.green(), FloatNear(0.03125F, 0.00001F));
   ASSERT_THAT(color.blue(), FloatNear(0.03125F, 0.00001F));
+}
+
+TEST(distributed_ray_tracing_shadow_ut, shadow_ray_iterator_advances_through_transparent_blockers)
+{
+  auto scene = shadow_scene();
+  scene->materials[1].kts = 0.25F;
+  scene->materials[1].ktd = 0.25F;
+  fake_rt_service rt{{rtc::intersection{1, 0.5F}, rtc::no_intersection}};
+  rtc::shadow_ray shadow{*scene, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 10.0F}, scene->lights.front()};
+
+  auto it = shadow.begin(rt);
+  const auto end = shadow.end(rt);
+
+  ASSERT_NE(it, end);
+  ASSERT_TRUE(it->object.is_with(1));
+  ASSERT_THAT(it->transmittance, FloatNear(1.0F, 0.00001F));
+
+  ++it;
+
+  ASSERT_NE(it, end);
+  ASSERT_TRUE(it->object.is_none());
+  ASSERT_THAT(it->transmittance, FloatNear(0.03125F, 0.00001F));
+
+  ++it;
+  ASSERT_EQ(it, end);
 }
 
 TEST(distributed_ray_tracing_shadow_ut, non_shadow_casting_object_between_surface_and_light_is_skipped)

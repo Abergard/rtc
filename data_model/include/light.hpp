@@ -34,11 +34,14 @@ struct light
   } inv_square{0.75, 0, 0};
 };
 
+inline auto inverse_square_factor(const light& l, const rtc_float distance) -> float
+{
+  return std::max<rtc_float>(1.0, distance * (l.inv_square.a * distance + l.inv_square.b) + l.inv_square.c);
+}
+
 inline auto inverse_square_factor(const light& l, const math_vector& direction) -> float
 {
-  const auto x{length(direction)};
-  return std::max<rtc_float>(1.0, x * (l.inv_square.a * x + l.inv_square.b) + l.inv_square.c);
+  return inverse_square_factor(l, length(direction));
 }
 
 }  // namespace rtc
-

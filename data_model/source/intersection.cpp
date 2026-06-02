@@ -204,6 +204,11 @@ auto intersection::operator-(const intersection& i) const noexcept -> rtc_float
   return std::get<1>(i.object.value()) - std::get<1>(object.value());
 }
 
+auto intersection::hit_value() const noexcept -> rtc_float
+{
+  return std::get<1>(object.value());
+}
+
 auto operator<<(std::ostream& s, intersection& i) noexcept -> std::ostream&
 {
   if(i.is_present())

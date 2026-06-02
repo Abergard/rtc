@@ -51,6 +51,22 @@ endif()
 target_link_libraries(rtc_rt_algorithms_ut PRIVATE input_model rtc_rt_algorithms rtc_rt_service gmock_main)
 add_test(rtc_rt_algorithms_ut ${CMAKE_BINARY_DIR}/rt_algorithms/rtc_rt_algorithms_ut --gtest_color=yes)
 
+if(TARGET benchmark::benchmark)
+  add_executable(distributed_ray_tracing_benchmark benchmark/distributed_ray_tracing_benchmark.cpp)
+  set_target_properties(distributed_ray_tracing_benchmark PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+
+  target_link_libraries(distributed_ray_tracing_benchmark PRIVATE rtc_rt_algorithms benchmark::benchmark)
+  add_custom_target(run_distributed_ray_tracing_benchmark
+      COMMAND distributed_ray_tracing_benchmark --benchmark_min_time=0.5s
+      DEPENDS distributed_ray_tracing_benchmark
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/rt_algorithms
+  )
+endif()
+
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/room.xml DESTINATION ${CMAKE_BINARY_DIR}/rt_algorithms/)
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/ulica.xml DESTINATION ${CMAKE_BINARY_DIR}/rt_algorithms/)
 file(COPY ${CMAKE_SOURCE_DIR}/assets/brs_xml/sun_room.xml DESTINATION ${CMAKE_BINARY_DIR}/rt_algorithms/)

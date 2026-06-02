@@ -11,6 +11,7 @@
 #include "fast_pow.hpp"
 #include "intersection.hpp"
 #include "math_ray.hpp"
+#include "shadow_ray.hpp"
 
 namespace rtc
 {
@@ -98,9 +99,11 @@ struct distributed_ray_tracing_shadows
   {
     const auto& m = object.attribute(*scene);
     const auto n = object.normal_vector(ray, *scene);
+    const auto hit_point = object.hit_point(ray);
+    const auto material_color = object.color(*scene);
 
 #if 1
-    auto local_color = (m.ka * object.color(*scene)) * scene->ambient + m.selfLuminance * object.color(*scene);
+    auto local_color = (m.ka * material_color) * scene->ambient + m.selfLuminance * material_color;
     if (m.shadowfall)
     {
       for (const auto& light : scene->lights)
@@ -109,31 +112,32 @@ struct distributed_ray_tracing_shadows
         //      Illumination
         // rtc::shadow_ray<rtc::color> sr{illumination};
 
-        const auto l = object.hit_point(ray) - light.position;
-        const auto nl = normalize(l);
+        const auto l = hit_point - light.position;
+        const auto light_distance = length(l);
+        const auto nl = light_distance > 0.0F ? l / light_distance : l;
         const auto dot_ln = std::max(0.0F, dot(n, nl));
         const auto dot_back_ln = std::max(0.0F, dot(-n, nl));
+        const auto diffuse_weight = m.kd * dot_ln + m.ktd * dot_back_ln;
 
-        if (dot_ln > 0.0F || (m.ktd > 0.0F && dot_back_ln > 0.0F))
+        if (diffuse_weight > 0.0F || (m.ks > 0.0F && dot_ln > 0.0F))
         {
-          const auto [i, f] = get_intersection_with_light_ray(object, ray, -l, light, rt);
+          const auto shadow = rtc::shadow_ray{*scene, hit_point, -l, light, light_distance}.trace(rt);
 
-          if (i.is_none() || !(i < intersection(_, 1.0F)))
+          if (shadow.object.is_none() || !(shadow.object < intersection(_, 1.0F)))
           {
             auto specular = 0.0F;
             if (m.ks > 0.0F)
             {
               const auto R = 2.0F * dot(nl, n) * n - nl;
-              const auto V = normalize(scene->optical_system.view_point - object.hit_point(ray));
+              const auto V = normalize(scene->optical_system.view_point - hit_point);
               const auto specular_angle = std::max(0.0F, dot(R, V));
               const auto shininess = static_cast<std::uint32_t>(std::max(1.0F, m.gs));
               specular = m.ks * rtc::pow(specular_angle, shininess);
             }
-            const auto d = inverse_square_factor(light, l);
+            const auto d = inverse_square_factor(light, light_distance);
 
-            local_color += (f / d) *
-                           ((m.kd * dot_ln + m.ktd * dot_back_ln) * (object.color(*scene) * light.light_color) +
-                            specular * light.light_color);
+            local_color += (shadow.transmittance / d) *
+                           (diffuse_weight * (material_color * light.light_color) + specular * light.light_color);
           }
         }
       }
@@ -161,46 +165,6 @@ struct distributed_ray_tracing_shadows
 
  private:
   const std::shared_ptr<const rtc::scene_model> scene;
-
-  template <typename _rt>
-  auto get_intersection_with_light_ray(const rtc::intersection& object,
-                                       const rtc::math_ray& ray,
-                                       const rtc::math_vector& L,
-                                       const rtc::light& light,
-                                       _rt& rt) const -> std::tuple<intersection, float>
-  {
-    rtc::math_ray shadow_ray{L, object.hit_point(ray)};
-    rtc::intersection intersect{};
-    rtc_float acc{1};
-
-    do
-    {
-      if (intersect)
-      {
-        const auto ray_hit = intersect.hit_point(shadow_ray);
-        const auto segment_length = rtc::length(ray_hit - shadow_ray.origin());
-        shadow_ray = {light.position - ray_hit, ray_hit};
-        const auto& material = intersect.attribute(*scene);
-
-        if (material.shadowcast)
-        {
-          const auto transparent_shadow = detail::saturated(0.5F * (material.kts + material.ktd));
-          acc *= std::pow(transparent_shadow, segment_length);
-        }
-      }
-
-      intersect = rt.trace_ray(shadow_ray).get();
-    } while (intersect.is_present() &&
-             (!intersect.attribute(*scene).shadowcast || intersect.is_refractive(*scene)) &&
-             intersect < intersection(_, 1.0F));
-
-    assert(intersect.is_present() && intersect.is_refractive(*scene) && !(intersect < intersection{_, 1.0F}) ||
-           intersect.is_present() && !intersect.is_refractive(*scene) && !(intersect < intersection{_, 1.0F}) ||
-           intersect.is_present() && !intersect.is_refractive(*scene) && (intersect < intersection{_, 1.0F}) ||
-           intersect.is_none());
-
-    return {intersect, std::clamp<rtc_float>(acc, 0, 1)};
-  }
 };
 
 }  // namespace rtc
