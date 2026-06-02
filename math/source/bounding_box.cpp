@@ -1,5 +1,8 @@
 #include "bounding_box.hpp"
 
+#include <algorithm>
+#include <limits>
+
 namespace rtc
 {
 
@@ -42,15 +45,4 @@ bounding_box::bounding_box(std::initializer_list<math_point> points) noexcept :
 {
 }
 
-auto bounding_box::maximum_extent() const noexcept -> rtc::axis
-{
-  const auto v = diagonal();
-  return v.x() > v.y() ? (v.x() > v.z() ? axis::x : axis::z) : (v.y() > v.z() ? axis::y : axis::z);
-}
-
-auto bounding_box::surface_area() const noexcept -> rtc_float
-{
-  const auto v = diagonal();
-  return 2.0F * (v.x()*v.y() + v.x()*v.z() + v.y()*v.z());
-}
 }

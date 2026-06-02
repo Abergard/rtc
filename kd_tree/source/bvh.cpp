@@ -78,7 +78,7 @@ auto centroid_axis(const rtc::bounding_box& box, const rtc::axis axis) noexcept 
 
 auto make_bbox_from_bounds(const rtc::math_point& min, const rtc::math_point& max) noexcept -> rtc::bounding_box
 {
-  return rtc::bounding_box{min, max};
+  return rtc::bounding_box::from_boundaries(min, max);
 }
 
 auto find_sah_split(const std::vector<rtc::bounding_box>& primitive_bboxes,

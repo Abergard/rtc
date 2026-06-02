@@ -5,4 +5,5 @@ build-release/*
 compile_commands.json
 rsyslog*
 rtc_trace.json
+externals/*
 

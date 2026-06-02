@@ -79,4 +79,18 @@ if(TARGET benchmark::benchmark)
       DEPENDS math_vector_benchmark
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/math
   )
+
+  add_executable(bounding_box_benchmark benchmark/bounding_box_benchmark.cpp)
+  set_target_properties(bounding_box_benchmark PROPERTIES
+      CXX_STANDARD 20
+      CXX_STANDARD_REQUIRED YES
+      CXX_EXTENSIONS NO
+  )
+
+  target_link_libraries(bounding_box_benchmark PRIVATE rtc_math benchmark::benchmark)
+  add_custom_target(run_bounding_box_benchmark
+      COMMAND bounding_box_benchmark --benchmark_min_time=0.5s
+      DEPENDS bounding_box_benchmark
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/math
+  )
 endif()

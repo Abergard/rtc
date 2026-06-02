@@ -1,7 +1,21 @@
 #include "intersection.hpp"
 
+#include <algorithm>
+
 namespace rtc
 {
+namespace
+{
+auto geometric_normal(const rtc::intersection& object, const rtc::scene_model& data) noexcept -> math_vector
+{
+  const auto& tr = object.triangle(data);
+  const auto& p1 = data.points[tr.vertex_a()];
+  const auto& p2 = data.points[tr.vertex_b()];
+  const auto& p3 = data.points[tr.vertex_c()];
+
+  return normalize(cross(p1 - p2, p3 - p2));
+}
+}  // namespace
 
 auto intersection::hit_point(const math_ray& ray) const noexcept -> math_point
 {
@@ -81,18 +95,25 @@ rtc_pure auto intersection::refract(const math_ray& r, const rtc::scene_model& s
 {
   if(is_refractive(sc))
   {
-    const auto eta{1/attribute(sc).eta};
-    const auto n{normal_vector(r, sc)};
-    const auto v{normalize(-r.direction())};
+    const auto& material = attribute(sc);
+    auto eta{1.0F / material.eta};
+    auto n{geometric_normal(*this, sc)};
+    const auto incident{normalize(r.direction())};
 
-    const auto cosThetaI{dot(v, n)};
-    const auto sin2ThetaI{std::max<rtc_float>(0.F, 1.F - cosThetaI * cosThetaI)};
+    if(dot(incident, n) > 0.0F)
+    {
+      n = -n;
+      eta = material.eta;
+    }
+
+    const auto cosThetaI{std::clamp(dot(-incident, n), 0.0F, 1.0F)};
+    const auto sin2ThetaI{std::max<rtc_float>(0.0F, 1.0F - cosThetaI * cosThetaI)};
     const auto sin2ThetaT{eta * eta * sin2ThetaI};
 
     if(sin2ThetaT < 1)
     {
-      const auto cosThetaT = std::sqrt(1.F - sin2ThetaT);
-      return {{ eta*(-v) + (eta * cosThetaI - cosThetaT) * n, hit_point(r) }};
+      const auto cosThetaT = std::sqrt(1.0F - sin2ThetaT);
+      return {{eta * incident + (eta * cosThetaI - cosThetaT) * n, hit_point(r)}};
     }
   }
 
